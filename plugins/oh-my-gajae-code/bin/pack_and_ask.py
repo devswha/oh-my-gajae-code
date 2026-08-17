@@ -480,9 +480,11 @@ def launch_browser_exe(path: str) -> bool:
 
 def ensure_browser(browser_arg: str | None) -> bool:
     """이미 CDP가 떠 있으면 그걸 검증·사용, 아니면 지정/감지된 브라우저를 전용 프로필로 띄운다."""
+    global BROWSER_STARTED_BY_RUN
     if is_port_open():
         if cdp_browser_ok():
             print(f"  ✓ CDP 브라우저 확인 (port {CDP_PORT})")
+            BROWSER_STARTED_BY_RUN = dedicated_profile_browser_present()
             return True
         print(f"  ❌ port {CDP_PORT}에 CDP 브라우저가 아닌 다른 프로세스가 떠 있음")
         return False
@@ -493,9 +495,22 @@ def ensure_browser(browser_arg: str | None) -> bool:
         return False
     started = launch_browser_exe(resolved[1])
     if started:
-        global BROWSER_STARTED_BY_RUN
         BROWSER_STARTED_BY_RUN = True
     return started
+
+
+def dedicated_profile_browser_present() -> bool:
+    """Check that the CDP browser belongs to the dedicated profile."""
+    try:
+        if host_os() == "win":
+            return True
+        proc = subprocess.run(["ps", "axww", "-o", "command="], capture_output=True, text=True, timeout=10)
+        profile = str(BROWSER_PROFILE_DIR)
+        tokens = ("chrome", "chromium", "comet", "edge", "brave", "vivaldi")
+        return any(profile in line and any(token in line.lower() for token in tokens)
+                   for line in proc.stdout.splitlines())
+    except Exception:
+        return False
 
 
 def cdp_browser_close(timeout: float = 6.0) -> bool:
