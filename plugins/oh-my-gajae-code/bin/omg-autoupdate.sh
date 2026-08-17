@@ -35,6 +35,7 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/oh-my-gajae-code"
 STABLE_SELF="$STATE_DIR/omg-autoupdate.sh"
 LOG="$STATE_DIR/autoupdate.log"
 LOCK="$STATE_DIR/autoupdate.lock"
+LOCK_DIR="$STATE_DIR/autoupdate.lock.d"
 UNIT_NAME="omg-autoupdate"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SERVICE_UNIT="$SYSTEMD_USER_DIR/$UNIT_NAME.service"
@@ -112,6 +113,43 @@ update_source_label() {
   else printf '%s' "$CANONICAL_INSTALLER_URL"; fi
 }
 
+LOCK_KIND=""
+LOCK_OWNER=""
+release_lock() {
+  if [ "$LOCK_KIND" = dir ] && [ "$LOCK_OWNER" = "$$" ]; then
+    rm -f "$LOCK_DIR/pid"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+acquire_lock() {
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK"
+    flock -n 9
+    return $?
+  fi
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    printf '%s\n' "$$" >"$LOCK_DIR/pid"
+    LOCK_KIND=dir
+    LOCK_OWNER="$$"
+    trap release_lock EXIT
+    return 0
+  fi
+  local owner=""
+  [ -f "$LOCK_DIR/pid" ] && owner="$(<"$LOCK_DIR/pid")"
+  if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+    rm -f "$LOCK_DIR/pid"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      printf '%s\n' "$$" >"$LOCK_DIR/pid"
+      LOCK_KIND=dir
+      LOCK_OWNER="$$"
+      trap release_lock EXIT
+      return 0
+    fi
+  fi
+  return 1
+}
+
 do_run() {
   guard_not_root
   ensure_state_dir
@@ -129,8 +167,7 @@ do_run() {
   fi
 
   # Single-flight: skip quietly if a run is already in progress.
-  exec 9>"$LOCK"
-  if ! flock -n 9; then
+  if ! acquire_lock; then
     printf '%s  skipped: another auto-update run holds the lock\n' "$(date -Is)" >>"$LOG"
     return 0
   fi
