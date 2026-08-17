@@ -52,7 +52,7 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 # --remote-debugging-port를 정책적으로 무시하므로(쿠키 탈취 방지), 이 별도 user-data-dir이
 # 없으면 디버그 포트가 아예 안 열린다. 모든 OS 공통으로 전용 프로필을 쓴다.
 BROWSER_PROFILE_DIR = Path(os.environ.get(
-    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile")))
+    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser().resolve()
 # 선택한 브라우저를 영속화(재질문 방지) — 우선순위: --browser > env > config 저장값 > 첫 감지.
 CONFIG_PATH = Path(os.environ.get(
     "INSANE_REVIEW_CONFIG", str(Path.home() / ".insane-review" / "config.json")))
@@ -428,12 +428,27 @@ def launch_browser_exe(path: str) -> bool:
     except OSError:
         pass
     cmd = [path, f"--remote-debugging-port={CDP_PORT}",
+           "--remote-debugging-address=127.0.0.1",
            f"--user-data-dir={BROWSER_PROFILE_DIR}",
-           "--no-first-run", "--no-default-browser-check"]
+           "--no-first-run", "--no-default-browser-check",
+           "--password-store=basic", "--use-mock-keychain"]
 
     def _spawn_and_wait(secs: int) -> bool:
         try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # The CLI is short-lived, but the dedicated browser must survive it so
+            # its authenticated profile and cookies remain available to the next run.
+            popen_kwargs = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
+            subprocess.Popen(cmd, **popen_kwargs)
         except OSError as exc:
             print(f"  ❌ 실행 실패: {str(exc)[:80]}")
             return False
@@ -712,6 +727,118 @@ def _open_switcher(page):
     return False
 
 
+def _menu_text(node) -> str:
+    """Return accessible label plus visible text for localized menu rows."""
+    try:
+        label = node.get_attribute("aria-label") or ""
+        text = node.inner_text() or ""
+        return "\n".join(part.strip() for part in (label, text) if part.strip())
+    except Exception:
+        return ""
+
+
+def _switcher_menu_open(page) -> bool:
+    try:
+        return bool(page.query_selector('[role="menu"]'))
+    except Exception:
+        return False
+
+
+def _ensure_switcher_menu(page) -> bool:
+    return _switcher_menu_open(page) or _open_switcher(page)
+
+
+def _expand_advanced_options(page) -> bool:
+    """Open the localized advanced view when the current ChatGPT UX hides it."""
+    try:
+        for row in page.query_selector_all('[role="menuitem"]'):
+            label = (row.get_attribute("aria-label") or "").strip().lower()
+            expanded = row.get_attribute("aria-expanded")
+            if "고급" in label or "advanced" in label or "간략" in label:
+                if expanded == "true":
+                    return True
+                row.click()
+                time.sleep(0.8)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _find_menu_row(page, keywords: tuple[str, ...]):
+    for row in page.query_selector_all('[role="menuitem"]'):
+        text = _menu_text(row).lower()
+        if all(keyword.lower() in text for keyword in keywords):
+            return row
+    return None
+
+
+def _click_menu_radio(page, target: str) -> str | None:
+    target_l = target.lower()
+    try:
+        candidates = page.query_selector_all('[role="menuitemradio"], [role="option"]')
+        for exact in (True, False):
+            for item in candidates:
+                text = _menu_text(item).strip()
+                lines = [line.strip() for line in text.splitlines() if line.strip()]
+                candidate = lines[-1] if lines else text
+                matched = candidate.lower() == target_l if exact else target_l in text.lower()
+                if matched:
+                    item.click()
+                    time.sleep(0.8)
+                    return candidate[:40]
+    except Exception:
+        pass
+    return None
+
+
+def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
+    """Select Model and Reasoning effort from the current Advanced menu UX."""
+    if not _expand_advanced_options(page):
+        return None
+    model_row = _find_menu_row(page, ("모델",))
+    effort_row = _find_menu_row(page, ("추론",))
+    if not model_row or not effort_row:
+        return None
+    try:
+        model_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_model = _click_menu_radio(page, require_model)
+    if selected_model is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    effort_row = _find_menu_row(page, ("추론",))
+    if not effort_row:
+        return False, None
+    try:
+        effort_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_effort = _click_menu_radio(page, want)
+    if selected_effort is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    model_row = _find_menu_row(page, ("모델",))
+    effort_row = _find_menu_row(page, ("추론",))
+    model_text = _menu_text(model_row) if model_row else ""
+    effort_text = _menu_text(effort_row) if effort_row else ""
+    verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
+    verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
+    verified = require_model.lower() in model_text.lower() and want.lower() in effort_text.lower()
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    result_name = f"{verified_model} ({verified_effort})"
+    print(f"  {'✓' if verified else '❌'} 최종 모델 검증: model={verified_model} (기대:{require_model}), effort={verified_effort} (기대:{want}) -> 결과={'OK' if verified else '실패'}")
+    return verified, result_name if verified else None
+
+
 def read_menu_state(page) -> dict:
     """열린 메뉴에서 모델명(menuitem 중 checked/selected) + 체크된 추론단계(menuitemradio aria-checked)를 읽는다."""
     state = {"model": None, "model_source": None, "models": [], "effort_checked": None, "items": []}
@@ -719,7 +846,7 @@ def read_menu_state(page) -> dict:
         # 한 번 순회하며 (1) 모델같은 항목 전부 수집, (2) aria-checked/selected된 활성 모델 검출
         for it in page.query_selector_all('[role="menuitem"], [role="menuitemradio"], [role="option"]'):
             is_checked = it.get_attribute("aria-checked") == "true" or it.get_attribute("aria-selected") == "true"
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             if t and re.search(r"GPT|gpt|o\d|Claude|Gemini", t):
                 name = t.splitlines()[0][:40]
                 if name not in state["models"]:
@@ -735,7 +862,7 @@ def read_menu_state(page) -> dict:
         pass
     try:
         for it in page.query_selector_all('[role="menuitemradio"]'):
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             state["items"].append(t)
             if it.get_attribute("aria-checked") == "true":
                 state["effort_checked"] = t
@@ -752,6 +879,11 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
     if not _open_switcher(page):
         print("  ⚠️  모델 스위처를 못 찾음 → 기본 모델로 진행")
         return False, None
+
+    if require_model:
+        advanced_result = _select_advanced_model_and_effort(page, want, require_model)
+        if advanced_result is not None:
+            return advanced_result
 
     before = read_menu_state(page)
     if before["model"]:

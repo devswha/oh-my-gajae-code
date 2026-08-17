@@ -83,7 +83,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 - **deps**(`playwright`·`pyperclip`): 없으면 "지금 자동 설치" 선택 → `--check-env --install`. (`npx`/repomix는 `npx -y`로 완전 자동.)
 - **browser**: 크로미움 계열 브라우저가 디버그포트(9222)에 **전용 프로필**로 떠 있어야 함(주 브라우저와 격리; Chrome 136+는 전용 프로필 없으면 CDP가 안 열림). 없으면 `--check-env`/`--list-browsers`의 `BROWSERS …` 목록으로 브라우저를 고르게 한 뒤 gjc가 `python3 "$IR" --launch-browser "<이름>"`(크로스플랫폼 mac/win/linux·전용 프로필·선택 자동 저장)을 실행. (쿠키는 전용 프로필에 보존 → 로그인 유지.)
 - **login**: 로그인 프로브가 `login=no`면, "방금 연 브라우저에서 chatgpt.com 로그인 + GPT-5.6 Sol Pro 선택" 후 "로그인 완료" 선택 → 재점검. **로그인은 자동 불가 → 반드시 사용자에게 요청**(에러로 끝내지 말 것).
-- **모델 5.6 Sol Pro**: 스크립트 `--model pro`가 자동선택·검증(`--require-model "GPT-5.6"`). 안 되면 사용자가 1회 수동 설정하면 새 채팅이 상속.
+- **모델 5.6 Sol Pro**: 스크립트가 고급 메뉴를 열어 `모델: GPT-5.6 Sol`과 `추론 강도: Pro`를 선택·검증한다. UI가 바뀌어 선택 또는 검증에 실패하면 전송하지 않고 fail-closed로 중단한다.
 
 ## 핵심 절차 (검토/수정/리뷰 요청을 받았을 때)
 
