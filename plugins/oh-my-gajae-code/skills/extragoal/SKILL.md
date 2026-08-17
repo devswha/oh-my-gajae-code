@@ -59,13 +59,13 @@ accepted 발견만 `executor`에 위임, 작업 브랜치에 커밋. 게이트 �
 - **기본 — 네이티브 교차세션 GJC (권장, 무료급)**: 무상태 세션 + 읽기전용 툴 allowlist. 리뷰어는 반드시 현재 세션과 분리된 외부 프로세스로 실행한다. 현재 세션의 `GJC_SESSION_ID`를 상속하지 않으며, 리뷰어의 모델 선택이 현재 세션에 `model_change`를 발생시키거나 현재 세션 설정을 덮어쓰면 안 된다.
   ```sh
   # Claude 저작 코드(권장 저작 프로파일의 일반 케이스) → 교차패밀리 gpt로 판정:
-  GJC_SESSION_ID= GJC_NOTIFICATIONS=0 GJC_SDK_DISABLE=1 gjc -p --no-session --model withfox/gpt-5.6-sol:max --tools read,search,find "<번들 경로 + verdict 계약>"
+  env -u GJC_SESSION_ID GJC_NOTIFICATIONS=0 GJC_SDK_DISABLE=1 gjc -p --no-session --model openai-codex/gpt-5.6-sol:max --tools read,search,find "<번들 경로 + verdict 계약>"
   ```
-  ⚠ `GJC_SESSION_ID=`와 `--no-session`은 필수다. 원샷은 **default 모델이 verdict 저자**(task 미허용이라 critic/architect 좌석 안 탐) → `--model`로 교차패밀리 명시가 곧 provenance이며, 이 선택은 리뷰어 자식 프로세스에만 적용된다. OMG는 reviewer 프리셋을 설치하지 않는다.
+  ⚠ `env -u GJC_SESSION_ID`와 `--no-session`은 필수다. 원샷은 **default 모델이 verdict 저자**(task 미허용이라 critic/architect 좌석 안 탐) → `--model`로 교차패밀리 명시가 곧 provenance이며, 이 선택은 리뷰어 자식 프로세스에만 적용된다. OMG는 reviewer 프리셋을 설치하지 않는다.
   ⚠ **`goal` 툴 비활성 필수**(allowlist 밖 주입): 레포 밖 전용 게이트 디렉토리(그 `.gjc/config.yml`에 `goal: enabled: false`)에서 절대경로로 레포를 읽어 실행 — 리뷰 대상 체크아웃을 더럽히지 않게. `generate_image`은 레포/`.gjc` 못 쓰지만 read/search/find 밖 호출은 계약 위반으로 라운드 실패·보고.
 - **커스텀 — 사용자 제공 외부 리뷰어 명령**: 같은 계약(무공유·교차패밀리·풀코드·fail-closed) 충족 시 GJC가 못 부르는 모델도 허용. **번들이 기기 밖으로 나감 → 시크릿 스캔 비타협 + 사설 레포 egress 정책은 운영자 책임.**
 - **맥시멀리스트 — N-of-N (선택, 운영자 로컬)**: 같은 불변 번들에 여러 독립 리뷰어 동시 실행 → 전원 대기 → 각 마지막 줄 파싱 → **기계적 AND 게이트**(전원 유효 APPROVE + 발견 전부 처분). 체크된 리뷰어 0이면 malformed·fail-closed. omj 어댑터:
-  - `openai-codex/gpt-5.5:xhigh` (네이티브, 기본 ON)
+  - `openai-codex/gpt-5.6-sol:max` (네이티브, 기본 ON)
   - `insane-review`(GPT-5.6 Sol Pro 웹, 운영자 소유 ToS 레인) — 기본 OFF, 레퍼런스 어댑터. 번들이 웹으로 나가니 시크릿 스캔 비타협.
   발견 병합은 파일:라인·심각도·메시지로 정규화·dedupe하되 원문·provenance 보존(어떤 리뷰어가 보고했는지).
 

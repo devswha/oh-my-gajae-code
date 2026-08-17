@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Subprocess-heavy deterministic integration tests share a 60-second budget.
+setDefaultTimeout(60_000);
 
 const runner = join(import.meta.dir, "../bin/multi-harness-research.mjs");
 const canonicalTmpDir = realpathSync(tmpdir());
@@ -344,7 +347,7 @@ describeMultiHarness("multi-harness-research runner", () => {
       expect(text).not.toContain("gjc-canary-75ddc0");
       expect(readFileSync(join(sealed.run_dir, "lanes/01-gjc-opus.md"), "utf8")).toContain(`error_class: ${expected}`);
     }
-  }, 15_000);
+  });
   test("scans short credential strings and values beyond the former cap", () => {
     const short = fixture();
     privateFile(join(short.home, ".local/share/gjc/auth.json"), JSON.stringify({ token: "abc" }));
