@@ -16,6 +16,8 @@ force-answer 재시도, UUID/PID 파일명, repomix 버전 핀+timeout, 권한/�
 from __future__ import annotations
 
 import argparse
+import atexit
+import base64
 import hashlib
 import json
 import os
@@ -23,6 +25,7 @@ import platform
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -53,6 +56,7 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 # 없으면 디버그 포트가 아예 안 열린다. 모든 OS 공통으로 전용 프로필을 쓴다.
 BROWSER_PROFILE_DIR = Path(os.environ.get(
     "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser().resolve()
+BROWSER_STARTED_BY_RUN = False
 # 선택한 브라우저를 영속화(재질문 방지) — 우선순위: --browser > env > config 저장값 > 첫 감지.
 CONFIG_PATH = Path(os.environ.get(
     "INSANE_REVIEW_CONFIG", str(Path.home() / ".insane-review" / "config.json")))
@@ -487,7 +491,64 @@ def ensure_browser(browser_arg: str | None) -> bool:
         avail = ", ".join(n for n, _ in detect_browsers()) or "없음"
         print(f"  ❌ 사용할 브라우저를 찾지 못함 (지정='{browser_arg}', 설치감지=[{avail}])")
         return False
-    return launch_browser_exe(resolved[1])
+    started = launch_browser_exe(resolved[1])
+    if started:
+        global BROWSER_STARTED_BY_RUN
+        BROWSER_STARTED_BY_RUN = True
+    return started
+
+
+def cdp_browser_close(timeout: float = 6.0) -> bool:
+    """Gracefully close the dedicated CDP browser so Chrome flushes cookies."""
+    try:
+        info = json.load(urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=timeout))
+        ws_url = info["webSocketDebuggerUrl"]
+        from urllib.parse import urlparse
+        ws = urlparse(ws_url)
+        sock = socket.create_connection((ws.hostname, ws.port), timeout)
+        sock.settimeout(timeout)
+    except Exception:
+        return False
+    try:
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall(
+            f"GET {ws.path} HTTP/1.1\r\nHost: {ws.hostname}:{ws.port}\r\n"
+            f"Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n".encode()
+        )
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return False
+            buf += chunk
+        payload = json.dumps({"id": 1, "method": "Browser.close"}).encode()
+        mask = os.urandom(4)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        header = bytes([0x81])
+        header += bytes([0x80 | len(payload)]) if len(payload) < 126 else bytes([0x80 | 126]) + struct.pack(">H", len(payload))
+        sock.sendall(header + mask + masked)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
+def close_started_browser() -> None:
+    if not BROWSER_STARTED_BY_RUN:
+        return
+    if cdp_browser_close():
+        deadline = time.monotonic() + 12
+        while is_port_open() and time.monotonic() < deadline:
+            time.sleep(0.3)
+        print(f"[insane-review] dedicated CDP browser closed: port_open={'yes' if is_port_open() else 'no'}")
+    elif is_port_open():
+        _kill_profile_browsers()
+        print("[insane-review] graceful CDP close failed; SIGTERM attempted for dedicated profile")
 
 
 def probe_login() -> str:
@@ -1569,6 +1630,7 @@ def main():
     print(f"\n[2/3] 브라우저 준비 ({bname})")
     if not ensure_browser(args.browser):
         sys.exit(1)
+    atexit.register(close_started_browser)
     # 명시적 지정(--browser)일 때만 영속화 — 자동감지 폴백을 사용자 선택처럼 굳히지 않는다.
     if args.browser and resolved_browser:
         save_browser_choice(resolved_browser[0])
