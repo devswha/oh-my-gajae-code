@@ -23,6 +23,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -52,7 +53,7 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 # --remote-debugging-port를 정책적으로 무시하므로(쿠키 탈취 방지), 이 별도 user-data-dir이
 # 없으면 디버그 포트가 아예 안 열린다. 모든 OS 공통으로 전용 프로필을 쓴다.
 BROWSER_PROFILE_DIR = Path(os.environ.get(
-    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile")))
+    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser().resolve()
 # 선택한 브라우저를 영속화(재질문 방지) — 우선순위: --browser > env > config 저장값 > 첫 감지.
 CONFIG_PATH = Path(os.environ.get(
     "INSANE_REVIEW_CONFIG", str(Path.home() / ".insane-review" / "config.json")))
@@ -400,45 +401,78 @@ def resolve_browser(name_or_path: str | None) -> tuple[str, str] | None:
     return bs[0] if bs else None
 
 
-def _kill_profile_browsers() -> None:
-    """전용 프로필을 점유 중인 브라우저 프로세스를 정리(크로스플랫폼 best-effort).
-    전용 프로필이라 종료해도 로그인 쿠키는 디스크에 보존된다 — 스테일 인스턴스가
-    새 런치를 흡수해(같은 user-data-dir 싱글톤) 디버그 포트가 안 열리는 교착을 푼다."""
-    target = str(BROWSER_PROFILE_DIR)
+def _prepare_browser_profile() -> bool:
+    """Create and verify the credential-bearing dedicated profile."""
     try:
-        if host_os() == "win":
-            ps = ("Get-CimInstance Win32_Process | "
-                  f"Where-Object {{ $_.CommandLine -like '*{target}*' }} | "
-                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
-                  "-ErrorAction SilentlyContinue }")
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True, timeout=15)
-        else:
-            subprocess.run(["pkill", "-f", target], capture_output=True, timeout=10)
-    except Exception:
-        pass
+        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        if not BROWSER_PROFILE_DIR.is_dir():
+            raise OSError("profile path is not a directory")
+        if os.name != "nt":
+            os.chmod(BROWSER_PROFILE_DIR, 0o700)
+            profile_stat = BROWSER_PROFILE_DIR.stat()
+            if stat.S_IMODE(profile_stat.st_mode) != 0o700:
+                raise OSError("profile permissions are not 0700")
+            if hasattr(os, "geteuid") and profile_stat.st_uid != os.geteuid():
+                raise OSError("profile is not owned by the current user")
+        return True
+    except OSError as exc:
+        print(f"  ❌ 전용 브라우저 프로필 보안 설정 실패: {str(exc)[:100]}")
+        return False
+
+
+def _cdp_matches_dedicated_profile() -> bool:
+    """Bind the live CDP endpoint to Chrome's private profile receipt."""
+    receipt = BROWSER_PROFILE_DIR / "DevToolsActivePort"
+    try:
+        receipt_stat = receipt.lstat()
+        if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
+            return False
+        if receipt_stat.st_size > 4096:
+            return False
+        lines = receipt.read_text(encoding="utf-8").splitlines()
+        if len(lines) < 2 or lines[0].strip() != str(CDP_PORT):
+            return False
+        expected_path = lines[1].strip()
+        if not expected_path.startswith("/devtools/browser/"):
+            return False
+        info = json.load(urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=3))
+        from urllib.parse import urlparse
+        actual = urlparse(info.get("webSocketDebuggerUrl", ""))
+        return actual.hostname in {"127.0.0.1", "localhost"} and actual.port == CDP_PORT and actual.path == expected_path
+    except (OSError, UnicodeError, ValueError, KeyError):
+        return False
 
 
 def launch_browser_exe(path: str) -> bool:
-    """전용 프로필 + 디버그 포트로 크로미움 직접 실행(크로스플랫폼) 후 CDP가 뜰 때까지 대기.
-    전용 프로필에 스테일 인스턴스가 떠 있어 새 런치가 포트를 못 여는 경우(같은 user-data-dir
-    싱글톤 교착)를 감지해 그 프로세스를 정리하고 1회 재시도한다."""
-    try:
-        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    """전용 프로필 + 디버그 포트로 크로미움 직접 실행한 뒤 소유 프로필을 검증한다."""
+    if not _prepare_browser_profile():
+        return False
     cmd = [path, f"--remote-debugging-port={CDP_PORT}",
+           "--remote-debugging-address=127.0.0.1",
            f"--user-data-dir={BROWSER_PROFILE_DIR}",
            "--no-first-run", "--no-default-browser-check"]
 
     def _spawn_and_wait(secs: int) -> bool:
         try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # The CLI is short-lived, but the dedicated browser must survive it so
+            # its authenticated profile and cookies remain available to the next run.
+            popen_kwargs = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
+            subprocess.Popen(cmd, **popen_kwargs)
         except OSError as exc:
             print(f"  ❌ 실행 실패: {str(exc)[:80]}")
             return False
         for i in range(secs):
-            if is_port_open() and cdp_browser_ok():
+            if is_port_open() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
                 print(f"  ✓ 시작 완료 ({i + 1}s)")
                 time.sleep(2)
                 return True
@@ -448,24 +482,17 @@ def launch_browser_exe(path: str) -> bool:
     print(f"  브라우저 시작: {Path(path).name} (CDP {CDP_PORT}, 전용 프로필)")
     if _spawn_and_wait(15):
         return True
-    # 포트 미개방 = 전용 프로필에 떠 있던 스테일 인스턴스가 런치를 흡수했을 가능성.
-    # 그 프로세스를 정리(로그인 보존)하고 싱글톤 락이 풀리길 기다린 뒤 1회 재시도.
-    print("  ⚠️  디버그 포트 미개방 — 전용 프로필 스테일 인스턴스 정리 후 재시도")
-    _kill_profile_browsers()
-    time.sleep(3)
-    if _spawn_and_wait(20):
-        return True
-    print("  ❌ 브라우저 시작 타임아웃 (전용 프로필 정리 후에도 실패)")
+    print("  ❌ 전용 프로필 CDP 확인 실패 — 기존 브라우저를 직접 종료한 뒤 다시 시도하세요")
     return False
 
 
 def ensure_browser(browser_arg: str | None) -> bool:
     """이미 CDP가 떠 있으면 그걸 검증·사용, 아니면 지정/감지된 브라우저를 전용 프로필로 띄운다."""
     if is_port_open():
-        if cdp_browser_ok():
+        if _prepare_browser_profile() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
             print(f"  ✓ CDP 브라우저 확인 (port {CDP_PORT})")
             return True
-        print(f"  ❌ port {CDP_PORT}에 CDP 브라우저가 아닌 다른 프로세스가 떠 있음")
+        print(f"  ❌ port {CDP_PORT}의 브라우저가 전용 프로필과 일치하지 않음")
         return False
     resolved = resolve_browser(browser_arg)
     if not resolved:
@@ -712,6 +739,118 @@ def _open_switcher(page):
     return False
 
 
+def _menu_text(node) -> str:
+    """Return accessible label plus visible text for localized menu rows."""
+    try:
+        label = node.get_attribute("aria-label") or ""
+        text = node.inner_text() or ""
+        return "\n".join(part.strip() for part in (label, text) if part.strip())
+    except Exception:
+        return ""
+
+
+def _switcher_menu_open(page) -> bool:
+    try:
+        return bool(page.query_selector('[role="menu"]'))
+    except Exception:
+        return False
+
+
+def _ensure_switcher_menu(page) -> bool:
+    return _switcher_menu_open(page) or _open_switcher(page)
+
+
+def _expand_advanced_options(page) -> bool:
+    """Open the localized advanced view when the current ChatGPT UX hides it."""
+    try:
+        for row in page.query_selector_all('[role="menuitem"]'):
+            label = _menu_text(row).lower()
+            expanded = row.get_attribute("aria-expanded")
+            if "고급" in label or "advanced" in label or "간략" in label:
+                if expanded == "true":
+                    return True
+                row.click()
+                time.sleep(0.8)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _find_menu_row(page, labels: tuple[str, ...]):
+    for row in page.query_selector_all('[role="menuitem"]'):
+        text = _menu_text(row).lower()
+        if any(label.lower() in text for label in labels):
+            return row
+    return None
+
+
+def _click_menu_radio(page, target: str) -> str | None:
+    target_l = target.lower()
+    try:
+        candidates = page.query_selector_all('[role="menuitemradio"], [role="option"]')
+        for exact in (True, False):
+            for item in candidates:
+                text = _menu_text(item).strip()
+                lines = [line.strip() for line in text.splitlines() if line.strip()]
+                candidate = lines[-1] if lines else text
+                matched = candidate.lower() == target_l if exact else target_l in text.lower()
+                if matched:
+                    item.click()
+                    time.sleep(0.8)
+                    return candidate[:40]
+    except Exception:
+        pass
+    return None
+
+
+def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
+    """Select Model and Reasoning effort from the current Advanced menu UX."""
+    if not _expand_advanced_options(page):
+        return None
+    model_row = _find_menu_row(page, ("모델", "model"))
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    if not model_row or not effort_row:
+        return None
+    try:
+        model_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_model = _click_menu_radio(page, require_model)
+    if selected_model is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    if not effort_row:
+        return False, None
+    try:
+        effort_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_effort = _click_menu_radio(page, want)
+    if selected_effort is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    model_row = _find_menu_row(page, ("모델", "model"))
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    model_text = _menu_text(model_row) if model_row else ""
+    effort_text = _menu_text(effort_row) if effort_row else ""
+    verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
+    verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
+    verified = verified_model.casefold() == require_model.strip().casefold() and verified_effort.casefold() == want.strip().casefold()
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    result_name = f"{verified_model} ({verified_effort})"
+    print(f"  {'✓' if verified else '❌'} 최종 모델 검증: model={verified_model} (기대:{require_model}), effort={verified_effort} (기대:{want}) -> 결과={'OK' if verified else '실패'}")
+    return verified, result_name if verified else None
+
+
 def read_menu_state(page) -> dict:
     """열린 메뉴에서 모델명(menuitem 중 checked/selected) + 체크된 추론단계(menuitemradio aria-checked)를 읽는다."""
     state = {"model": None, "model_source": None, "models": [], "effort_checked": None, "items": []}
@@ -719,7 +858,7 @@ def read_menu_state(page) -> dict:
         # 한 번 순회하며 (1) 모델같은 항목 전부 수집, (2) aria-checked/selected된 활성 모델 검출
         for it in page.query_selector_all('[role="menuitem"], [role="menuitemradio"], [role="option"]'):
             is_checked = it.get_attribute("aria-checked") == "true" or it.get_attribute("aria-selected") == "true"
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             if t and re.search(r"GPT|gpt|o\d|Claude|Gemini", t):
                 name = t.splitlines()[0][:40]
                 if name not in state["models"]:
@@ -735,7 +874,7 @@ def read_menu_state(page) -> dict:
         pass
     try:
         for it in page.query_selector_all('[role="menuitemradio"]'):
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             state["items"].append(t)
             if it.get_attribute("aria-checked") == "true":
                 state["effort_checked"] = t
@@ -752,6 +891,11 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
     if not _open_switcher(page):
         print("  ⚠️  모델 스위처를 못 찾음 → 기본 모델로 진행")
         return False, None
+
+    if require_model:
+        advanced_result = _select_advanced_model_and_effort(page, want, require_model)
+        if advanced_result is not None:
+            return advanced_result
 
     before = read_menu_state(page)
     if before["model"]:
@@ -820,7 +964,7 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
 
     model_verified = True
     if require_model:
-        name_ok = after["model"] is not None and require_model.lower() in after["model"].lower()
+        name_ok = after["model"] is not None and after["model"].strip().casefold() == require_model.strip().casefold()
         # 폴백(활성표시 없음)으로 잡은 모델명은 메뉴에 모델이 여러 개일 때 신뢰 불가 → fail-closed.
         # 활성표시(checked)거나 메뉴에 모델이 하나뿐이면 폴백이라도 안전(= 활성 모델).
         src_ok = (after.get("model_source") == "checked") or (len(after.get("models") or []) <= 1)
@@ -1365,7 +1509,7 @@ def main():
     # 스킵되는 fail-open을 차단(fail-closed). 모델/추론단계를 함께 지정해야 검증이 돈다.
     if args.require_model and not args.model:
         sys.exit('❌ --require-model은 --model과 함께 써야 합니다(모델/추론단계를 선택·검증하는 경로).\n'
-                 '     예: --model pro --require-model "GPT-5.6"')
+                 '     예: --model pro --require-model "GPT-5.6 Sol"')
 
     real_stdout = sys.stdout
     if args.council:

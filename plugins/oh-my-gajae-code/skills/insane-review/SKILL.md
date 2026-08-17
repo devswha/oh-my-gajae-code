@@ -83,7 +83,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 - **deps**(`playwright`·`pyperclip`): 없으면 "지금 자동 설치" 선택 → `--check-env --install`. (`npx`/repomix는 `npx -y`로 완전 자동.)
 - **browser**: 크로미움 계열 브라우저가 디버그포트(9222)에 **전용 프로필**로 떠 있어야 함(주 브라우저와 격리; Chrome 136+는 전용 프로필 없으면 CDP가 안 열림). 없으면 `--check-env`/`--list-browsers`의 `BROWSERS …` 목록으로 브라우저를 고르게 한 뒤 gjc가 `python3 "$IR" --launch-browser "<이름>"`(크로스플랫폼 mac/win/linux·전용 프로필·선택 자동 저장)을 실행. (쿠키는 전용 프로필에 보존 → 로그인 유지.)
 - **login**: 로그인 프로브가 `login=no`면, "방금 연 브라우저에서 chatgpt.com 로그인 + GPT-5.6 Sol Pro 선택" 후 "로그인 완료" 선택 → 재점검. **로그인은 자동 불가 → 반드시 사용자에게 요청**(에러로 끝내지 말 것).
-- **모델 5.6 Sol Pro**: 스크립트 `--model pro`가 자동선택·검증(`--require-model "GPT-5.6"`). 안 되면 사용자가 1회 수동 설정하면 새 채팅이 상속.
+- **모델 5.6 Sol Pro**: 스크립트가 고급 메뉴를 열어 `모델: GPT-5.6 Sol`과 `추론 강도: Pro`를 선택·검증한다. UI가 바뀌어 선택 또는 검증에 실패하면 전송하지 않고 fail-closed로 중단한다.
 
 ## 핵심 절차 (검토/수정/리뷰 요청을 받았을 때)
 
@@ -103,7 +103,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 ```bash
 python3 "$IR" \
   --target <repo_root> --include "<관련 파일 글롭>" \
-  --model pro --require-model "GPT-5.6" \
+  --model pro --require-model "GPT-5.6 Sol" \
   --prompt "<의도를 담은 정확한 질문 — '판정마다 파일/라인/코드조각을 인용하라'를 반드시 포함>"
 ```
 **레포 없이 순수 질문(의견)만:** `--target` 생략 → 프롬프트만 전송.
@@ -132,6 +132,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - 큰 콘텐츠는 **파일 첨부**로 들어간다(붙여넣기 X). 스크립트가 자동 처리.
 - 실패 시 `--retries N`으로 전송/회수를 재시도.
 - 동시에 두 개의 insane-review 잡이 **같은 브라우저**를 몰면 안 된다.
+- 전용 프로필 CDP 브라우저는 CLI 종료 뒤에도 실행 상태를 유지한다. 다음 실행에서 인증 프로필과 쿠키를 재사용하며, 스크립트는 외부 브라우저를 종료하지 않는다.
 
 ## 채팅 정리 — 폴더명 ChatGPT 프로젝트 (기본 on)
 매 실행이 일반 채팅 목록에 쌓이지 않도록, **현재 폴더명(+경로해시)과 같은 이름의 ChatGPT 프로젝트** 안에 채팅을 정리한다. 폴더당 프로젝트 1개로 묶여 일반 목록이 깨끗하게 유지된다.
@@ -140,7 +141,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - 이름 바꾸려면 `--project "<이름>"`, 끄려면 `--no-project`.
 
 ## 주요 플래그
-`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
+`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6 Sol"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
 
 ## agent-council 멤버로 쓰기
 `references/council-setup.md` 참고. `--council` 모드는 프롬프트를 위치인자로 받고 **응답만 stdout**으로 내보내(진행로그는 stderr) council worker가 그대로 캡처한다. Pro를 웹 전용 council 멤버로 등록하면 다른 모델들과 토론에 참여시킬 수 있다.

@@ -1,12 +1,20 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Subprocess-heavy deterministic integration tests share a 60-second budget.
+setDefaultTimeout(60_000);
+
 const runner = join(import.meta.dir, "../bin/multi-harness-research.mjs");
+const canonicalTmpDir = realpathSync(tmpdir());
 const fixtures: string[] = [];
+// The production runner intentionally fails closed off Linux because its
+// sandbox contract requires Linux bubblewrap. Keep the suite visible as
+// skipped on macOS/Windows rather than reporting environment failures.
+const describeMultiHarness = process.platform === "linux" ? describe : describe.skip;
 
 type Lane = "gjc-opus" | "gjc-sol" | "codex-sol" | "claude-ultracode";
 type Fixture = {
@@ -36,7 +44,7 @@ function privateFile(path: string, value: string, mode = 0o600): void {
 }
 
 function fixture(): Fixture {
-  const root = mkdtempSync(join(tmpdir(), "multi-harness-research-"));
+  const root = mkdtempSync(join(canonicalTmpDir, "multi-harness-research-"));
   fixtures.push(root);
   const home = join(root, "home");
   const target = join(root, "target");
@@ -247,7 +255,7 @@ afterEach(() => {
   for (const root of fixtures.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("multi-harness-research runner", () => {
+describeMultiHarness("multi-harness-research runner", () => {
   test("fans exactly four fixed selectors one byte-identical task and suffix", () => {
     const f = fixture();
     const { child } = invoke(f, "Line one\r\nLine two");
@@ -339,7 +347,7 @@ describe("multi-harness-research runner", () => {
       expect(text).not.toContain("gjc-canary-75ddc0");
       expect(readFileSync(join(sealed.run_dir, "lanes/01-gjc-opus.md"), "utf8")).toContain(`error_class: ${expected}`);
     }
-  }, 15_000);
+  });
   test("scans short credential strings and values beyond the former cap", () => {
     const short = fixture();
     privateFile(join(short.home, ".local/share/gjc/auth.json"), JSON.stringify({ token: "abc" }));

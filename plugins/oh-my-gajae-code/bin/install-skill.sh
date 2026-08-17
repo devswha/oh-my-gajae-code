@@ -170,6 +170,15 @@ sha256_file() {
   echo "❌ install FAILED — SHA-256 tool unavailable for runtime binding" >&2
   return 1
 }
+stat_uid() {
+  if stat -c '%u' "$1" >/dev/null 2>&1; then stat -c '%u' "$1"; else stat -f '%u' "$1"; fi
+}
+stat_mode() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
+}
+stat_links() {
+  if stat -c '%h' "$1" >/dev/null 2>&1; then stat -c '%h' "$1"; else stat -f '%l' "$1"; fi
+}
 # The multi-harness runner has a private binding with an exact executable and
 # credential-leaf contract. Runtime paths are accepted only when every canonical
 # component is owned by the invoking user or root, non-symlinked, and not writable by
@@ -186,8 +195,8 @@ multi_harness_trusted_path() { # $1=absolute canonical existing path
       echo "❌ multi-harness runtime path is missing or symlinked: $current" >&2
       return 1
     }
-    owner="$(stat -c '%u' "$current")"
-    mode="$(stat -c '%a' "$current")"
+    owner="$(stat_uid "$current")"
+    mode="$(stat_mode "$current")"
     if [ "$owner" != "$uid" ] && [ "$owner" != 0 ]; then
       echo "❌ multi-harness runtime path has an unexpected owner: $current" >&2
       return 1
@@ -203,16 +212,16 @@ multi_harness_trusted_path() { # $1=absolute canonical existing path
 multi_harness_private_file() { # $1=path $2=required octal mode
   local owner links mode
   [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  owner="$(stat -c '%u' "$1")"
-  links="$(stat -c '%h' "$1")"
-  mode="$(stat -c '%a' "$1")"
+  owner="$(stat_uid "$1")"
+  links="$(stat_links "$1")"
+  mode="$(stat_mode "$1")"
   [ "$owner" = "$(id -u)" ] && [ "$links" = 1 ] && [ "$mode" = "$2" ]
 }
 multi_harness_private_directory() { # $1=path $2=required octal mode
   local owner mode
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
-  owner="$(stat -c '%u' "$1")"
-  mode="$(stat -c '%a' "$1")"
+  owner="$(stat_uid "$1")"
+  mode="$(stat_mode "$1")"
   [ "$owner" = "$(id -u)" ] && [ "$mode" = "$2" ]
 }
 prepare_multi_harness_runtime_parent() {
@@ -264,9 +273,9 @@ multi_harness_credential_leaf() { # $1=label $2=literal configured leaf path
     return 1
   fi
   multi_harness_trusted_path "$canonical" || return 1
-  owner="$(stat -c '%u' "$canonical")"
-  links="$(stat -c '%h' "$canonical")"
-  mode="$(stat -c '%a' "$canonical")"
+  owner="$(stat_uid "$canonical")"
+  links="$(stat_links "$canonical")"
+  mode="$(stat_mode "$canonical")"
   if [ "$owner" != "$(id -u)" ] || [ "$links" != 1 ] || (( (8#$mode & 8#077) != 0 )); then
     echo "❌ multi-harness $label credential file must be current-user, single-link, and mode 0600 or stricter" >&2
     return 1

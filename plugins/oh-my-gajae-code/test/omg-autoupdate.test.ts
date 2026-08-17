@@ -56,6 +56,13 @@ describe("omg-autoupdate.sh", () => {
     }
   });
 
+  test("portable directory lock never reclaims or removes an existing owner", () => {
+    const source = readFileSync(script, "utf8");
+    expect(source).toContain('if mkdir "$LOCK_DIR" 2>/dev/null; then');
+    expect(source).not.toContain('kill -0 "$owner"');
+    expect(source).not.toContain('rmdir "$LOCK_DIR" 2>/dev/null || true\n    if mkdir "$LOCK_DIR"');
+  });
+
   test("run --local --dry-run runs the checkout installer instead of the network", () => {
     const st = mkdtempSync(join(tmpdir(), "omgau-"));
     try {

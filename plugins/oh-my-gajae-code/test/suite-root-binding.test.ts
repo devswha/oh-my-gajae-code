@@ -6,6 +6,7 @@ import { spawnSync } from "child_process";
 
 const pluginRoot = resolve(import.meta.dir, "..");
 const canonicalPluginRoot = realpathSync(pluginRoot);
+const canonicalTmpDir = realpathSync(tmpdir());
 const installer = join(pluginRoot, "bin", "install-skill.sh");
 const sandboxes: string[] = [];
 
@@ -23,7 +24,7 @@ interface Sandbox {
 }
 
 function createSandbox(): Sandbox {
-  const root = mkdtempSync(join(tmpdir(), "omg-suite-root-"));
+  const root = mkdtempSync(join(canonicalTmpDir, "omg-suite-root-"));
   sandboxes.push(root);
   const home = join(root, "home");
   const project = join(root, "project");
