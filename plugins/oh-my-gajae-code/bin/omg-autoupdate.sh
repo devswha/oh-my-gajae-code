@@ -7,7 +7,7 @@
 #
 # Design / safety:
 #   - Never runs as root.
-#   - Single-flight lock (flock) so overlapping timers don't collide.
+#   - Single-flight lock (flock, or atomic mkdir fallback) so overlapping timers don't collide.
 #   - Network updates download to a temp file and check the fetch rc BEFORE
 #     executing, so a partial/failed download is never run or logged OK.
 #   - The installer's real exit code is propagated: a failed update exits
@@ -128,24 +128,16 @@ acquire_lock() {
     return $?
   fi
   if mkdir "$LOCK_DIR" 2>/dev/null; then
-    printf '%s\n' "$$" >"$LOCK_DIR/pid"
     LOCK_KIND=dir
     LOCK_OWNER="$$"
     trap release_lock EXIT
-    return 0
-  fi
-  local owner=""
-  [ -f "$LOCK_DIR/pid" ] && owner="$(<"$LOCK_DIR/pid")"
-  if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-    rm -f "$LOCK_DIR/pid"
-    rmdir "$LOCK_DIR" 2>/dev/null || true
-    if mkdir "$LOCK_DIR" 2>/dev/null; then
-      printf '%s\n' "$$" >"$LOCK_DIR/pid"
-      LOCK_KIND=dir
-      LOCK_OWNER="$$"
-      trap release_lock EXIT
-      return 0
+    if ! printf '%s\n' "$$" >"$LOCK_DIR/pid"; then
+      release_lock
+      LOCK_KIND=""
+      LOCK_OWNER=""
+      return 1
     fi
+    return 0
   fi
   return 1
 }

@@ -23,6 +23,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -400,35 +401,52 @@ def resolve_browser(name_or_path: str | None) -> tuple[str, str] | None:
     return bs[0] if bs else None
 
 
-def _kill_profile_browsers() -> None:
-    """전용 프로필을 점유 중인 브라우저 프로세스를 정리(크로스플랫폼 best-effort).
-    전용 프로필이라 종료해도 로그인 쿠키는 디스크에 보존된다 — 스테일 인스턴스가
-    새 런치를 흡수해(같은 user-data-dir 싱글톤) 디버그 포트가 안 열리는 교착을 푼다."""
-    target = str(BROWSER_PROFILE_DIR)
+def _prepare_browser_profile() -> bool:
+    """Create and verify the credential-bearing dedicated profile."""
     try:
-        if host_os() == "win":
-            ps = ("Get-CimInstance Win32_Process | "
-                  f"Where-Object {{ $_.CommandLine -like '*{target}*' }} | "
-                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
-                  "-ErrorAction SilentlyContinue }")
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True, timeout=15)
-        else:
-            subprocess.run(["pkill", "-f", target], capture_output=True, timeout=10)
-    except Exception:
-        pass
+        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        if not BROWSER_PROFILE_DIR.is_dir():
+            raise OSError("profile path is not a directory")
+        if os.name != "nt":
+            os.chmod(BROWSER_PROFILE_DIR, 0o700)
+            profile_stat = BROWSER_PROFILE_DIR.stat()
+            if stat.S_IMODE(profile_stat.st_mode) != 0o700:
+                raise OSError("profile permissions are not 0700")
+            if hasattr(os, "geteuid") and profile_stat.st_uid != os.geteuid():
+                raise OSError("profile is not owned by the current user")
+        return True
+    except OSError as exc:
+        print(f"  ❌ 전용 브라우저 프로필 보안 설정 실패: {str(exc)[:100]}")
+        return False
+
+
+def _cdp_matches_dedicated_profile() -> bool:
+    """Bind the live CDP endpoint to Chrome's private profile receipt."""
+    receipt = BROWSER_PROFILE_DIR / "DevToolsActivePort"
+    try:
+        receipt_stat = receipt.lstat()
+        if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
+            return False
+        if receipt_stat.st_size > 4096:
+            return False
+        lines = receipt.read_text(encoding="utf-8").splitlines()
+        if len(lines) < 2 or lines[0].strip() != str(CDP_PORT):
+            return False
+        expected_path = lines[1].strip()
+        if not expected_path.startswith("/devtools/browser/"):
+            return False
+        info = json.load(urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=3))
+        from urllib.parse import urlparse
+        actual = urlparse(info.get("webSocketDebuggerUrl", ""))
+        return actual.hostname in {"127.0.0.1", "localhost"} and actual.port == CDP_PORT and actual.path == expected_path
+    except (OSError, UnicodeError, ValueError, KeyError):
+        return False
 
 
 def launch_browser_exe(path: str) -> bool:
-    """전용 프로필 + 디버그 포트로 크로미움 직접 실행(크로스플랫폼) 후 CDP가 뜰 때까지 대기.
-    전용 프로필에 스테일 인스턴스가 떠 있어 새 런치가 포트를 못 여는 경우(같은 user-data-dir
-    싱글톤 교착)를 감지해 그 프로세스를 정리하고 1회 재시도한다."""
-    try:
-        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        if os.name != "nt":
-            os.chmod(BROWSER_PROFILE_DIR, 0o700)
-    except OSError:
-        pass
+    """전용 프로필 + 디버그 포트로 크로미움 직접 실행한 뒤 소유 프로필을 검증한다."""
+    if not _prepare_browser_profile():
+        return False
     cmd = [path, f"--remote-debugging-port={CDP_PORT}",
            "--remote-debugging-address=127.0.0.1",
            f"--user-data-dir={BROWSER_PROFILE_DIR}",
@@ -454,7 +472,7 @@ def launch_browser_exe(path: str) -> bool:
             print(f"  ❌ 실행 실패: {str(exc)[:80]}")
             return False
         for i in range(secs):
-            if is_port_open() and cdp_browser_ok():
+            if is_port_open() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
                 print(f"  ✓ 시작 완료 ({i + 1}s)")
                 time.sleep(2)
                 return True
@@ -464,24 +482,17 @@ def launch_browser_exe(path: str) -> bool:
     print(f"  브라우저 시작: {Path(path).name} (CDP {CDP_PORT}, 전용 프로필)")
     if _spawn_and_wait(15):
         return True
-    # 포트 미개방 = 전용 프로필에 떠 있던 스테일 인스턴스가 런치를 흡수했을 가능성.
-    # 그 프로세스를 정리(로그인 보존)하고 싱글톤 락이 풀리길 기다린 뒤 1회 재시도.
-    print("  ⚠️  디버그 포트 미개방 — 전용 프로필 스테일 인스턴스 정리 후 재시도")
-    _kill_profile_browsers()
-    time.sleep(3)
-    if _spawn_and_wait(20):
-        return True
-    print("  ❌ 브라우저 시작 타임아웃 (전용 프로필 정리 후에도 실패)")
+    print("  ❌ 전용 프로필 CDP 확인 실패 — 기존 브라우저를 직접 종료한 뒤 다시 시도하세요")
     return False
 
 
 def ensure_browser(browser_arg: str | None) -> bool:
     """이미 CDP가 떠 있으면 그걸 검증·사용, 아니면 지정/감지된 브라우저를 전용 프로필로 띄운다."""
     if is_port_open():
-        if cdp_browser_ok():
+        if _prepare_browser_profile() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
             print(f"  ✓ CDP 브라우저 확인 (port {CDP_PORT})")
             return True
-        print(f"  ❌ port {CDP_PORT}에 CDP 브라우저가 아닌 다른 프로세스가 떠 있음")
+        print(f"  ❌ port {CDP_PORT}의 브라우저가 전용 프로필과 일치하지 않음")
         return False
     resolved = resolve_browser(browser_arg)
     if not resolved:
@@ -830,7 +841,7 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     effort_text = _menu_text(effort_row) if effort_row else ""
     verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
     verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
-    verified = require_model.lower() in model_text.lower() and want.lower() in effort_text.lower()
+    verified = verified_model.casefold() == require_model.strip().casefold() and verified_effort.casefold() == want.strip().casefold()
     try:
         page.keyboard.press("Escape")
     except Exception:
@@ -953,7 +964,7 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
 
     model_verified = True
     if require_model:
-        name_ok = after["model"] is not None and require_model.lower() in after["model"].lower()
+        name_ok = after["model"] is not None and after["model"].strip().casefold() == require_model.strip().casefold()
         # 폴백(활성표시 없음)으로 잡은 모델명은 메뉴에 모델이 여러 개일 때 신뢰 불가 → fail-closed.
         # 활성표시(checked)거나 메뉴에 모델이 하나뿐이면 폴백이라도 안전(= 활성 모델).
         src_ok = (after.get("model_source") == "checked") or (len(after.get("models") or []) <= 1)
@@ -1498,7 +1509,7 @@ def main():
     # 스킵되는 fail-open을 차단(fail-closed). 모델/추론단계를 함께 지정해야 검증이 돈다.
     if args.require_model and not args.model:
         sys.exit('❌ --require-model은 --model과 함께 써야 합니다(모델/추론단계를 선택·검증하는 경로).\n'
-                 '     예: --model pro --require-model "GPT-5.6"')
+                 '     예: --model pro --require-model "GPT-5.6 Sol"')
 
     real_stdout = sys.stdout
     if args.council:

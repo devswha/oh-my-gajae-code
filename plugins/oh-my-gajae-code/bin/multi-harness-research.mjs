@@ -144,10 +144,9 @@ function trustedPath(path, type, modeMaximum = 0o022, allowRootOwner = false) {
     let part;
     try { part = lstatSync(current); } catch { return undefined; }
     if (part.isSymbolicLink() || !part.isDirectory() || (uid !== undefined && part.uid !== uid && part.uid !== 0)) return undefined;
-    // OS temp roots may be sticky ancestors of an otherwise private fixture/root
-    // (/tmp on Linux, /private/var/folders/.../T on macOS). They are not artifact
-    // or control destinations themselves and cannot replace a child owned 0700 directory.
-    if ((part.mode & 0o022) !== 0 && (part.mode & 0o1000) === 0) return undefined;
+    // /tmp may be a sticky ancestor of an otherwise private fixture/root. It is not an
+    // artifact/control destination itself and cannot replace a child owned 0700 directory.
+    if ((part.mode & 0o022) !== 0 && !(current === "/tmp" && (part.mode & 0o1000) !== 0)) return undefined;
     if (current === dirname(current)) break;
     current = dirname(current);
   }

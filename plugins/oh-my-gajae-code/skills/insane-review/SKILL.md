@@ -103,7 +103,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 ```bash
 python3 "$IR" \
   --target <repo_root> --include "<관련 파일 글롭>" \
-  --model pro --require-model "GPT-5.6" \
+  --model pro --require-model "GPT-5.6 Sol" \
   --prompt "<의도를 담은 정확한 질문 — '판정마다 파일/라인/코드조각을 인용하라'를 반드시 포함>"
 ```
 **레포 없이 순수 질문(의견)만:** `--target` 생략 → 프롬프트만 전송.
@@ -141,7 +141,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - 이름 바꾸려면 `--project "<이름>"`, 끄려면 `--no-project`.
 
 ## 주요 플래그
-`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
+`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6 Sol"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
 
 ## agent-council 멤버로 쓰기
 `references/council-setup.md` 참고. `--council` 모드는 프롬프트를 위치인자로 받고 **응답만 stdout**으로 내보내(진행로그는 stderr) council worker가 그대로 캡처한다. Pro를 웹 전용 council 멤버로 등록하면 다른 모델들과 토론에 참여시킬 수 있다.
