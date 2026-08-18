@@ -20,6 +20,33 @@ archive is the browsable record.
 
 ## Entries
 
+### `adaptive-response` — removed in v0.32.0 (commit `c798ba9`)
+| archived file | original path |
+|---|---|
+| `adaptive-response/SKILL.md` | `plugins/oh-my-gajae-code/skills/adaptive-response/SKILL.md` |
+| `adaptive-response/command-gate.md` | `plugins/oh-my-gajae-code/templates/gate.md` |
+| `adaptive-response/command-gate-always.md` | `plugins/oh-my-gajae-code/templates/gate-always.md` |
+| `adaptive-response/adaptive-response.test.ts` | `plugins/oh-my-gajae-code/test/adaptive-response.test.ts` |
+
+### `deep-onboarding` — removed in v0.32.0 (commit `c798ba9`)
+| archived file | original path |
+|---|---|
+| `deep-onboarding/SKILL.md` | `plugins/oh-my-gajae-code/skills/deep-onboarding/SKILL.md` |
+| `deep-onboarding/command-deep-onboarding.md` | `plugins/oh-my-gajae-code/templates/deep-onboarding.md` |
+| `deep-onboarding/deep-onboarding.test.ts` | `plugins/oh-my-gajae-code/test/deep-onboarding.test.ts` |
+
+### `multi-harness-research` — removed in v0.32.0 (commit `c798ba9`)
+| archived file | original path |
+|---|---|
+| `multi-harness-research/SKILL.md` | `plugins/oh-my-gajae-code/skills/multi-harness-research/SKILL.md` |
+| `multi-harness-research/command-multi-harness.md` | `plugins/oh-my-gajae-code/templates/multi-harness.md` |
+| `multi-harness-research/multi-harness-research.mjs` | `plugins/oh-my-gajae-code/bin/multi-harness-research.mjs` |
+| `multi-harness-research/multi-harness-research.test.ts` | `plugins/oh-my-gajae-code/test/multi-harness-research.test.ts` |
+| `multi-harness-research/multi-harness-research-surface.test.ts` | `plugins/oh-my-gajae-code/test/multi-harness-research-surface.test.ts` |
+| `multi-harness-research/install-skill-pre-removal.sh` | `plugins/oh-my-gajae-code/bin/install-skill.sh` (pre-removal snapshot containing the retired runtime integration) |
+
+The multi-harness installer snapshot is archival only.
+
 ### `preset-pack` — removed in v0.29.0 (commit `b533a5d`)
 Curated model-preset merger (`daily`/`agent`) into user `models.yml`.
 | archived file | original path |

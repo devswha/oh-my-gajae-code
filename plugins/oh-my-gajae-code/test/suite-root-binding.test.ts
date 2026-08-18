@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { spawnSync } from "child_process";
@@ -82,7 +82,7 @@ describe("suite root runtime binding", () => {
   });
   test.each(["user", "project"] as const)("binds a single native %s capability to the suite root", (scope) => {
     const sandbox = createSandbox();
-    const result = run(sandbox, ["adaptive-response", scope]);
+    const result = run(sandbox, ["no-english", scope]);
     const binding = bindingPath(sandbox, scope);
 
     expect(result.status, result.stderr).toBe(0);
@@ -103,6 +103,7 @@ describe("suite root runtime binding", () => {
     const userRetiredRuntime = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/binding");
     const userRetiredRunner = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/runner.mjs");
     const userMultiHarnessRuntime = join(sandbox.home, ".gjc/agent/runtimes/multi-harness-research");
+    const xdgResearchArtifact = join(sandbox.home, ".local/share/oh-my-gajae-code/multi-harness/keep.json");
     const externalOuroborosFiles = new Map<string, string>([
       [join(sandbox.home, ".local/lib/python3.12/site-packages/ouroboros/__init__.py"), "external package"],
       [join(sandbox.home, ".ouroboros/state.json"), "external Ouroboros state"],
@@ -113,18 +114,14 @@ describe("suite root runtime binding", () => {
       [join(nativeRoot, "commands/oh-my-gjc:ouroboros-setup.md"), "never-owned legacy setup alias"],
     ]);
     const models = join(sandbox.home, ".gjc/agent/models.yml");
-    const expectedSkills = ["adaptive-response", "no-english", "extragoal", "insane-review", "deep-onboarding", "multi-harness-research", "ouroboros"].map((name) =>
+    const expectedSkills = ["no-english", "extragoal", "insane-review", "ouroboros"].map((name) =>
       join(nativeRoot, `skills/${name}/SKILL.md`),
     );
     const expectedCommands = [
       "omg.md",
       "omg:setup.md",
-      "omg:gate.md",
-      "omg:gate-always.md",
       "omg:no-english.md",
       "omg:insane-review.md",
-      "omg:deep-onboarding.md",
-      "omg:multi-harness.md",
       "omg:ouroboros-setup.md",
     ].map((name) => join(nativeRoot, `commands/${name}`));
     mkdirSync(dirname(legacyBinding), { recursive: true, mode: 0o700 });
@@ -144,8 +141,14 @@ describe("suite root runtime binding", () => {
     chmodSync(userRetiredRuntime, 0o600);
     writeFileSync(userRetiredRunner, "retired runner", { mode: 0o700 });
     chmodSync(userRetiredRunner, 0o700);
-    mkdirSync(userMultiHarnessRuntime, { recursive: true });
-    writeFileSync(join(userMultiHarnessRuntime, "binding"), "multi-harness runtime");
+    mkdirSync(userMultiHarnessRuntime, { recursive: true, mode: 0o700 });
+    chmodSync(userMultiHarnessRuntime, 0o700);
+    writeFileSync(join(userMultiHarnessRuntime, "binding"), "multi-harness-research-binding-v1\n", { mode: 0o600 });
+    chmodSync(join(userMultiHarnessRuntime, "binding"), 0o600);
+    writeFileSync(join(userMultiHarnessRuntime, "runner.mjs"), "multi-harness runtime", { mode: 0o700 });
+    chmodSync(join(userMultiHarnessRuntime, "runner.mjs"), 0o700);
+    mkdirSync(dirname(xdgResearchArtifact), { recursive: true });
+    writeFileSync(xdgResearchArtifact, "XDG research remains");
     for (const [path, content] of externalOuroborosFiles) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content);
@@ -170,7 +173,8 @@ describe("suite root runtime binding", () => {
       expect(readFileSync(userRetiredRunner, "utf8")).toBe("retired runner");
     }
     if (scope === "user") expect(existsSync(userMultiHarnessRuntime)).toBe(false);
-    else expect(readFileSync(join(userMultiHarnessRuntime, "binding"), "utf8")).toBe("multi-harness runtime");
+    else expect(readFileSync(join(userMultiHarnessRuntime, "binding"), "utf8")).toBe("multi-harness-research-binding-v1\n");
+    expect(readFileSync(xdgResearchArtifact, "utf8")).toBe("XDG research remains");
     for (const [path, content] of externalOuroborosFiles) {
       expect(readFileSync(path, "utf8")).toBe(content);
     }
@@ -191,6 +195,37 @@ describe("suite root runtime binding", () => {
     expect(result.stderr).toContain("suite runtime binding path contains a symlink");
     expect(existsSync(join(external, "root"))).toBe(false);
   });
+
+  test("backs up and removes only well-formed retired gate-always marker blocks", () => {
+    const sandbox = createSandbox();
+    const system = join(sandbox.home, ".gjc/agent/SYSTEM.md");
+    mkdirSync(dirname(system), { recursive: true });
+    writeFileSync(
+      system,
+      "keep-before\n<!-- BEGIN oh-my-gjc:gate-always -->\nretired\n<!-- END oh-my-gjc:gate-always -->\nkeep-after",
+    );
+
+    const result = run(sandbox, ["all", "user"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(system, "utf8")).toBe("keep-before\nkeep-after");
+    expect(
+      readdirSync(dirname(system)).some((name) => name.startsWith("SYSTEM.md.bak-")),
+    ).toBe(true);
+
+    const malformed = createSandbox();
+    const malformedSystem = join(malformed.home, ".gjc/agent/SYSTEM.md");
+    mkdirSync(dirname(malformedSystem), { recursive: true });
+    const malformedContent = "keep\n<!-- BEGIN oh-my-gjc:gate-always -->\nunterminated\n";
+    writeFileSync(malformedSystem, malformedContent);
+
+    const malformedResult = run(malformed, ["all", "user"]);
+
+    expect(malformedResult.status, malformedResult.stderr).toBe(0);
+    expect(readFileSync(malformedSystem, "utf8")).toBe(malformedContent);
+    expect(malformedResult.stderr).toContain("gate-always marker cleanup skipped (malformed markers)");
+  });
+
   test("preserves malformed and symlinked legacy bindings for bounded read fallback", () => {
     const malformed = createSandbox();
     const malformedBinding = legacyBindingPath(malformed, "user");

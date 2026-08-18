@@ -9,7 +9,7 @@ argument-hint: "(인자 없음)"
 
 ## Step 0 — 네이티브 표면과 binding 확인
 
-canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 7개 skill과 9개 command, 새 canonical suite root binding, private runtime binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
+canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 4개 skill과 5개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
 
 ```bash
 root="$HOME/.gjc/agent"
@@ -19,17 +19,12 @@ if test -e "$legacy_suite_binding" || test -L "$legacy_suite_binding"; then
   printf '%s\n' "warning: preserved compatibility fallback binding is present at $legacy_suite_binding; the oh-my-gajae-code binding is canonical" >&2
 fi
 test -f "$new_suite_binding" && test ! -L "$new_suite_binding" || exit 1
-for skill in adaptive-response no-english extragoal insane-review deep-onboarding multi-harness-research ouroboros; do
+for skill in no-english extragoal insane-review ouroboros; do
   test -f "$root/skills/$skill/SKILL.md" || exit 1
 done
-for command in omg.md omg:setup.md omg:gate.md omg:gate-always.md omg:no-english.md omg:insane-review.md omg:deep-onboarding.md omg:multi-harness.md omg:ouroboros-setup.md; do
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:ouroboros-setup.md; do
   test -f "$root/commands/$command" || exit 1
 done
-for runtime in "$root/runtimes/multi-harness-research"; do
-  test ! -L "$runtime" || exit 1
-done
-test ! -e "$root/runtimes/multi-harness-research" ||
-  { test -f "$root/runtimes/multi-harness-research/runner.mjs" && test -f "$root/runtimes/multi-harness-research/binding"; }
 ```
 
 프로젝트 `.gjc/runtimes/oh-my-gajae-code/root`, `.gjc/commands/omg*.md`, 또는 suite-owned `.gjc/skills/<name>`가 있으면 `프로젝트 scope 잔재가 user 설치보다 우선할 수 있음`이라고 경고만 한다. **Preserved compatibility fallback:** 이전 `~/.gjc/agent/runtimes/oh-my-gjc/root` binding이 있으면 새 binding을 정본으로 유지한 채 read-only fallback 존재만 경고한다. 이 커맨드는 프로젝트·user scope 어느 쪽도 수정하지 않는다.
@@ -43,12 +38,9 @@ test ! -e "$root/runtimes/multi-harness-research" ||
 | 감지 | 읽기 전용 확인 | 기능 |
 |---|---|---|
 | Chrome + ChatGPT | Chrome 프로필 존재 | `/omg:insane-review` |
-| 네 하니스 조사 | Linux + `bwrap` + Node/GJC/Codex/Claude + private `multi-harness-research` binding과 세 credential leaf | 명시 전용 `/omg:multi-harness` |
 | 외부 Ouroboros | 사용자가 별도 설치한 upstream Ouroboros `0.51.7` 이상 + Python `3.12` 이상 | 명시 전용 `/omg:ouroboros-setup` |
 
-`/omg:multi-harness`는 binding이 있어도 네 provider의 실제 selector/auth preflight를 실행할 때만 런타임이 확인한다. 현재 Codex OAuth `401`은 **pending-environment**이며, 이 진단은 로그인 성공으로 바꾸거나 fixture를 성공으로 주장하지 않는다.
-
-Ouroboros는 OMG가 번들·설치·소유하는 MCP나 bridge가 아닌 외부 upstream 도구다. 이 진단은 이를 설치·업데이트·실행하지 않는다. 업데이트는 절대 자동이 아니며, 사용자가 별도 승인하기 전에는 `ouroboros update --check`만 안내하고, 승인한 경우에만 `ouroboros update --yes --runtime gjc`를 안내한다. 계획 모드는 승인된 Seed 생성 후 멈추며 Seed를 실행하지 않는다.
+Ouroboros는 OMG가 번들·설치·소유하는 MCP나 bridge가 아닌 외부 upstream 도구다. 이 진단은 이를 설치·업데이트·실행하지 않는다. 업데이트는 절대 자동이 아니며, 사용자가 별도 승인하기 전에는 `ouroboros update --check`만 안내하고, 승인한 경우에만 `ouroboros update --yes --runtime gjc`를 안내한다. OMG는 Ouroboros plan wrapper를 제공하지 않는다.
 
 ## Step 2 — 출력 형식
 

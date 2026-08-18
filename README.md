@@ -1,6 +1,6 @@
 # oh-my-gajae-code
 
-Gajae Code (`gjc`)에 명시적 안전 게이트와 심층 조사를 더하는 단일 플러그인 스위트입니다.
+Gajae Code (`gjc`)에 한국어 우선 표현, 외부 코드 리뷰, Ouroboros 연동 안내를 더하는 단일 플러그인 스위트입니다.
 
 ## 설치
 
@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/insta
 Install oh-my-gajae-code by following https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/INSTALLATION.md — run the steps, verify, and report.
 ```
 
-한 번 설치하면 스킬 7개와 커맨드 9개(`/omg` 및 `/omg:*` 8개)가 모두 설치됩니다. 업그레이드할 때는 원샷 설치 명령을 다시 실행합니다. 이 설치는 Ouroboros 연동 wrapper만 복사하며 Ouroboros를 설치하지 않습니다.
+한 번 설치하면 스킬 4개와 커맨드 5개(`/omg` 및 `/omg:*` 4개)가 모두 설치됩니다. 업그레이드할 때는 원샷 설치 명령을 다시 실행합니다. 이 설치는 Ouroboros 연동 wrapper만 복사하며 Ouroboros를 설치하지 않습니다.
 
 설치가 안 되면 저장소를 받은 뒤 같은 설치 프로그램을 실행합니다.
 
@@ -29,9 +29,9 @@ bash oh-my-gajae-code/install.sh
 
 ## 구성
 
-스킬: `adaptive-response`, `no-english`, `extragoal`, `insane-review`, `deep-onboarding`, `multi-harness-research`, `ouroboros`
+스킬: `no-english`, `extragoal`, `insane-review`, `ouroboros`
 
-커맨드: `/omg`, `/omg:setup`, `/omg:gate`, `/omg:gate-always`, `/omg:no-english`, `/omg:insane-review`, `/omg:deep-onboarding`, `/omg:multi-harness`, `/omg:ouroboros-setup`
+커맨드: `/omg`, `/omg:setup`, `/omg:no-english`, `/omg:insane-review`, `/omg:ouroboros-setup`
 
 각 기능의 활성 조건, 안전 경계, 전제 조건은 [기능 안내](./docs/capabilities.md)를 확인합니다.
 
@@ -39,7 +39,6 @@ bash oh-my-gajae-code/install.sh
 
 - `gjc`를 설치하고 필요한 모델 공급자에 로그인합니다.
 - `insane-review`는 ChatGPT 구독과 chatgpt.com에 로그인한 Chromium 계열 브라우저의 CDP `:9222`가 필요합니다.
-- `multi-harness-research`는 Linux, `bwrap`, 지원되는 자격 증명 파일 배치, 네 공급자의 기존 로그인이 필요합니다.
 - Ouroboros bridge는 Python >=3.12, `gjc`, 외부 `ouroboros-ai` >=0.51.7이 필요합니다. OMG는 연동 wrapper만 제공하며 설치·업데이트·계획 실행 경계는 [기능 안내](./docs/capabilities.md#ouroboros)를 따릅니다.
 
 설치와 환경 설정은 [INSTALLATION.md](./INSTALLATION.md), 상세 기능은 [기능 안내](./docs/capabilities.md), 식별자 변경과 제거 이력은 [마이그레이션 안내](./docs/migrations.md), 삭제된 소스 기록은 [보관 목록](./docs/removed/README.md)을 참고합니다.

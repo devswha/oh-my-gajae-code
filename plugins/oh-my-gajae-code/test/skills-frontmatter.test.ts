@@ -51,7 +51,7 @@ describe("command template frontmatter is valid YAML", () => {
 describe("backtick-leading descriptions stay quoted", () => {
   // These descriptions intentionally lead with an `/omg:...` command in backticks; the
   // value MUST be quoted so it is not parsed as a plain scalar (reserved char).
-  test.each(["no-english", "adaptive-response"])(
+  test.each(["no-english"])(
     "%s description is quoted and still leads with the command backtick",
     (name) => {
       const fm = frontmatter(join(pluginRoot, "skills", name, "SKILL.md"));
