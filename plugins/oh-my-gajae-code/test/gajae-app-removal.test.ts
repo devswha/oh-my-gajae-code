@@ -48,6 +48,9 @@ const retiredSkills = [
   "session-observer",
   "time-left",
   "lazycodex-gjc",
+  "adaptive-response",
+  "deep-onboarding",
+  "multi-harness-research",
 ];
 
 const retiredCommands = [
@@ -65,6 +68,10 @@ const retiredCommands = [
   "time-left",
   "lazycodex-gjc",
   "fable",
+  "gate",
+  "gate-always",
+  "deep-onboarding",
+  "multi-harness",
 ];
 
 describe("removed capability manifests", () => {
@@ -74,34 +81,25 @@ describe("removed capability manifests", () => {
     const expectedRuntimes = parseManifest("EXPECTED_RUNTIMES");
     const removedSkills = parseManifest("REMOVED_SKILLS");
     const removedCommands = parseManifest("REMOVED_COMMANDS");
-    expect(expectedSkills).toHaveLength(7);
-    expect(expectedCommands).toHaveLength(9);
+    expect(expectedSkills).toHaveLength(4);
+    expect(expectedCommands).toHaveLength(5);
     expect(expectedSkills).not.toContain("gajae-app");
     expect(expectedCommands).not.toContain("gajae-app");
 
     expect(expectedSkills).toEqual([
-      "adaptive-response",
       "no-english",
       "extragoal",
       "insane-review",
-      "deep-onboarding",
-      "multi-harness-research",
       "ouroboros",
     ]);
     expect(expectedCommands).toEqual([
       "omg",
       "setup",
-      "gate",
-      "gate-always",
       "no-english",
       "insane-review",
-      "deep-onboarding",
-      "multi-harness",
       "ouroboros-setup",
     ]);
-    expect(expectedRuntimes).toEqual([
-      "bin/multi-harness-research.mjs",
-    ]);
+    expect(expectedRuntimes).toEqual([]);
     for (const skill of retiredSkills) expect(removedSkills).toContain(skill);
     for (const command of retiredCommands) expect(removedCommands).toContain(command);
     expect(intersection(expectedSkills, removedSkills)).toEqual([]);
@@ -128,7 +126,7 @@ describe("removed capability manifests", () => {
     expect(existsSync(join(pluginRoot, "skills/time-left/SKILL.md"))).toBe(false);
     expect(existsSync(join(pluginRoot, "templates/time-left.md"))).toBe(false);
     expect(existsSync(join(pluginRoot, "tools/sdk-lab"))).toBe(false);
-    expect(existsSync(join(pluginRoot, "bin/multi-harness-research.mjs"))).toBe(true);
+    expect(existsSync(join(pluginRoot, "bin/multi-harness-research.mjs"))).toBe(false);
     expect(existsSync(join(pluginRoot, "bin/session-observer.ts"))).toBe(false);
     expect(existsSync(join(pluginRoot, "skills/session-observer/SKILL.md"))).toBe(false);
     expect(existsSync(join(pluginRoot, "templates/session-observer.md"))).toBe(false);
@@ -160,10 +158,13 @@ describe("removed capability upgrade cleanup", () => {
     const removedReceipt = join(home, ".gjc/agent/receipts/lazycodex-gjc-runner.sha256");
     const removedSdkRuntime = join(home, ".gjc/agent/runtimes/oh-my-gjc/sdk-lab/package.json");
     const removedSdkLock = join(home, ".gjc/agent/runtimes/oh-my-gjc/.sdk-lab.lock");
+    const removedMultiHarnessBinding = join(home, ".gjc/agent/runtimes/multi-harness-research/binding");
+    const removedMultiHarnessRunner = join(home, ".gjc/agent/runtimes/multi-harness-research/runner.mjs");
+    const preservedMultiHarnessChild = join(home, ".gjc/agent/runtimes/multi-harness-research/user-note");
     const codexCredential = join(home, ".codex/auth.json");
     const systemFile = join(home, ".gjc/agent/SYSTEM.md");
     const agentsFile = join(home, ".gjc/agent/AGENTS.md");
-    // Historical cleanup fixture: remove the retired easy marker but preserve the stable gate marker.
+    // Historical cleanup fixture: remove both retired owned marker blocks.
     const markerFixture = [
       "user content before",
       "<!-- BEGIN oh-my-gjc:easy-always -->",
@@ -183,6 +184,9 @@ describe("removed capability upgrade cleanup", () => {
       [join(sandbox, "logs/gajae-app.log"), "logs remain"],
       [join(sandbox, "tailscale/state.json"), "Tailscale state remains"],
       [join(home, ".gjc/agent/models.yml"), "profiles:\n  sol:\n    display_name: user-owned\n"],
+      [join(home, ".local/share/oh-my-gajae-code/multi-harness/research.json"), "XDG research remains"],
+      [join(home, ".local/share/gjc/auth.json"), "GJC auth remains"],
+      [join(home, ".claude/.credentials.json"), "Claude auth remains"],
     ]);
 
     try {
@@ -212,6 +216,12 @@ describe("removed capability upgrade cleanup", () => {
       chmodSync(dirname(removedSdkRuntime), 0o700);
       chmodSync(removedSdkRuntime, 0o600);
       chmodSync(removedSdkLock, 0o600);
+      writeSentinel(removedMultiHarnessBinding, "multi-harness-research-binding-v1\n");
+      writeSentinel(removedMultiHarnessRunner, "retired runner");
+      writeSentinel(preservedMultiHarnessChild, "unknown runtime child remains");
+      chmodSync(dirname(removedMultiHarnessBinding), 0o700);
+      chmodSync(removedMultiHarnessBinding, 0o600);
+      chmodSync(removedMultiHarnessRunner, 0o700);
       writeSentinel(codexCredential, "user Codex credential remains");
       writeSentinel(systemFile, markerFixture);
       writeSentinel(agentsFile, markerFixture.replaceAll("oh-my-gjc:easy-always", "my-workflows:easy-always"));
@@ -239,6 +249,9 @@ describe("removed capability upgrade cleanup", () => {
         expect(() => lstatSync(removedReceipt)).toThrow();
         expect(existsSync(removedSdkRuntime)).toBe(false);
         expect(existsSync(removedSdkLock)).toBe(false);
+        expect(existsSync(removedMultiHarnessBinding)).toBe(false);
+        expect(existsSync(removedMultiHarnessRunner)).toBe(false);
+        expect(readFileSync(preservedMultiHarnessChild, "utf8")).toBe("unknown runtime child remains");
         expect(readFileSync(codexCredential, "utf8")).toBe("user Codex credential remains");
         for (const file of [systemFile, agentsFile]) {
           const original =
@@ -247,18 +260,21 @@ describe("removed capability upgrade cleanup", () => {
               : markerFixture.replaceAll("oh-my-gjc:easy-always", "my-workflows:easy-always");
           const content = readFileSync(file, "utf8");
           expect(content).toContain("user content before");
-          expect(content).toContain("preserved gate rule");
           expect(content).toContain("user content after");
-          expect(content).toContain("<!-- BEGIN oh-my-gjc:gate-always -->");
-          expect(content).toContain("<!-- END oh-my-gjc:gate-always -->");
+          expect(content).not.toContain("preserved gate rule");
+          expect(content).not.toContain("gate-always");
           expect(content).not.toContain("easy-always");
           expect(statSync(file).mode & 0o777).toBe(0o600);
-          const backupName = readdirSync(dirname(file)).find((name) =>
+          const backupNames = readdirSync(dirname(file)).filter((name) =>
             name.startsWith(`${basename(file)}.bak-`),
           );
-          expect(backupName).toBeDefined();
-          expect(readFileSync(join(dirname(file), backupName!), "utf8")).toBe(original);
-          expect(statSync(join(dirname(file), backupName!)).mode & 0o777).toBe(0o600);
+          expect(backupNames.length).toBeGreaterThanOrEqual(2);
+          expect(
+            backupNames.some((name) => readFileSync(join(dirname(file), name), "utf8") === original),
+          ).toBe(true);
+          for (const backupName of backupNames) {
+            expect(statSync(join(dirname(file), backupName)).mode & 0o777).toBe(0o600);
+          }
         }
       } else {
         expect(readFileSync(removedRuntime, "utf8")).toBe(`lazycodex-gjc-binding-v1\n${home}\n`);
@@ -266,6 +282,9 @@ describe("removed capability upgrade cleanup", () => {
         expect(readFileSync(removedReceipt, "utf8")).toBe("retired receipt");
         expect(readFileSync(removedSdkRuntime, "utf8")).toBe('{"name": "@oh-my-gjc/sdk-lab"}\n');
         expect(readFileSync(removedSdkLock, "utf8")).toBe("retired SDK lock");
+        expect(readFileSync(removedMultiHarnessBinding, "utf8")).toBe("multi-harness-research-binding-v1\n");
+        expect(readFileSync(removedMultiHarnessRunner, "utf8")).toBe("retired runner");
+        expect(readFileSync(preservedMultiHarnessChild, "utf8")).toBe("unknown runtime child remains");
         expect(readFileSync(codexCredential, "utf8")).toBe("user Codex credential remains");
         expect(readFileSync(systemFile, "utf8")).toBe(markerFixture);
         expect(readFileSync(agentsFile, "utf8")).toBe(
@@ -298,7 +317,7 @@ describe("removed capability upgrade cleanup", () => {
       });
       expect(result.status).not.toBe(0);
       expect(readFileSync(sentinel, "utf8")).toBe("external user file remains");
-      expect(existsSync(join(externalSkills, "adaptive-response/SKILL.md"))).toBe(false);
+      expect(existsSync(join(externalSkills, "no-english/SKILL.md"))).toBe(false);
       expect(existsSync(join(home, ".gjc/agent/runtimes/oh-my-gajae-code/root"))).toBe(false);
     } finally {
       rmSync(sandbox, { recursive: true, force: true });

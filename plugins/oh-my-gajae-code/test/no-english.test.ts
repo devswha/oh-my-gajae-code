@@ -45,7 +45,6 @@ describe("no-english skill contract", () => {
       "`ralplan`",
       "`deep-interview`",
       "`team`",
-      "`adaptive-response`",
     ]) {
       expect(skill).toContain(canonical);
     }
@@ -76,13 +75,13 @@ describe("no-english skill contract", () => {
     expect(skill).toContain("영어를 기계적으로 없애는 번역기가 아니라");
     expect(skill).toContain("`Quadrant`가 정확한 열 이름이나 enum 값이라면");
     expect(skill).toContain("사분면 판정 기준을 무엇으로 고정할까요?");
-    expect(skill).toContain("`adaptive-response`는 설명의 깊이와 형식을 정하고");
+    expect(skill).toContain("## 다른 규칙과 함께 쓸 때");
   });
 
   test("is part of the exact native skill manifest", () => {
     const installer = read(installerPath);
     expect(installer).toContain(
-      "EXPECTED_SKILLS=(adaptive-response no-english extragoal insane-review deep-onboarding multi-harness-research ouroboros)",
+      "EXPECTED_SKILLS=(no-english extragoal insane-review ouroboros)",
     );
     expect(installer).toContain("REMOVED_SKILLS=(gate-briefing korean-first workflow-eta ");
   });
