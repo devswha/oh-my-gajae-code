@@ -42,13 +42,13 @@ done
 PLUGIN_ROOT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 
 # ── EXPECTED manifest (the single source of truth for a complete install) ────────────
-EXPECTED_SKILLS=(no-english extragoal insane-review ouroboros)
-EXPECTED_COMMANDS=(omg setup no-english insane-review ouroboros-setup)
+EXPECTED_SKILLS=(no-english extragoal insane-review)
+EXPECTED_COMMANDS=(omg setup no-english insane-review)
 EXPECTED_RUNTIMES=()
 # Upgrades sweep only native files and dedicated runtime state owned by capabilities
 # retired from this suite.
-REMOVED_SKILLS=(gate-briefing korean-first workflow-eta time-left codex-deepwork codex-app-launch codex-app-cdp codex-cli-ask lazycodex lazycodex-gjc tower worktree gajae-app multivendor-presets preset-pack release-gate easy-answer plain-layer branch-flow gjc-bugwatch session-observer adaptive-response deep-onboarding multi-harness-research)
-REMOVED_COMMANDS=(fable time-left codex-run codex-app-launch codex-app-ask codex-ask lazycodex-setup lazycodex-work lazycodex-gjc tower-setup gajae-app presets preset-pack release easy easy-always plain branchflow-always worktree bugwatch-scan session-observer gate gate-always deep-onboarding multi-harness)
+REMOVED_SKILLS=(gate-briefing korean-first workflow-eta time-left codex-deepwork codex-app-launch codex-app-cdp codex-cli-ask lazycodex lazycodex-gjc tower worktree gajae-app multivendor-presets preset-pack release-gate easy-answer plain-layer branch-flow gjc-bugwatch session-observer adaptive-response deep-onboarding multi-harness-research ouroboros)
+REMOVED_COMMANDS=(fable time-left codex-run codex-app-launch codex-app-ask codex-ask lazycodex-setup lazycodex-work lazycodex-gjc tower-setup gajae-app presets preset-pack release easy easy-always plain branchflow-always worktree bugwatch-scan session-observer gate gate-always deep-onboarding multi-harness ouroboros-setup)
 # Pre-0.8.1 native files that upgrades must sweep away: the 17 one-release deprecation
 # tombstones shipped by 0.8.0 (removed in 0.8.1). Old `oh-my-gjc:<name>.md` aliases are
 # covered separately by the explicit historically-owned alias inventory below.
@@ -446,7 +446,12 @@ cleanup_removed() { # $1=scope — sweep only native files of capabilities remov
     return 1
   fi
   for n in "${REMOVED_COMMANDS[@]}"; do
-    if [ -f "$d/omg:$n.md" ] || [ -L "$d/omg:$n.md" ] || [ -f "$d/oh-my-gjc:$n.md" ] || [ -L "$d/oh-my-gjc:$n.md" ]; then rm -f "$d/omg:$n.md" "$d/oh-my-gjc:$n.md"; removed=$((removed+1)); fi
+    if [ "$n" = "ouroboros-setup" ]; then
+      if [ -f "$d/omg:$n.md" ] || [ -L "$d/omg:$n.md" ]; then rm -f "$d/omg:$n.md"; removed=$((removed+1)); fi
+    elif [ -f "$d/omg:$n.md" ] || [ -L "$d/omg:$n.md" ] || [ -f "$d/oh-my-gjc:$n.md" ] || [ -L "$d/oh-my-gjc:$n.md" ]; then
+      rm -f "$d/omg:$n.md" "$d/oh-my-gjc:$n.md"
+      removed=$((removed+1))
+    fi
   done
   for n in "${REMOVED_SKILLS[@]}"; do
     if [ -d "$sd/$n" ] || [ -L "$sd/$n" ]; then rm -rf "$sd/$n"; removed=$((removed+1)); fi
@@ -619,13 +624,8 @@ case "$mode" in
       if [ "$scope" = "user" ]; then cleanup_removed_easy_markers; cleanup_retired_gate_markers; fi
       cleanup_retired_branchflow_marker
     else
-      if [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
-        uninstall_skill ouroboros "$scope"
-        uninstall_command ouroboros-setup "$scope"
-      else
-        if [ -d "$PLUGIN_ROOT/skills/$target" ];       then uninstall_skill   "$target" "$scope"; fi
-        if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then uninstall_command "$target" "$scope"; fi
-      fi
+      if [ -d "$PLUGIN_ROOT/skills/$target" ];       then uninstall_skill   "$target" "$scope"; fi
+      if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then uninstall_command "$target" "$scope"; fi
     fi
     ;;
   user|project)
@@ -647,25 +647,13 @@ case "$mode" in
       cleanup_retired_branchflow_marker
       report_missing
     else
-      if [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
-        for r in skills/ouroboros/SKILL.md templates/ouroboros-setup.md; do
-          [ -f "$PLUGIN_ROOT/$r" ] && [ ! -L "$PLUGIN_ROOT/$r" ] || MISSING+=("$r")
-        done
-        report_missing
-      fi
       install_suite_root_binding "$mode"
-      if [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
-        install_skill ouroboros "$mode"
-        install_command ouroboros-setup "$mode"
-      else
-        if [ -d "$PLUGIN_ROOT/skills/$target" ];       then install_skill   "$target" "$mode"; fi
-        if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then install_command "$target" "$mode"; fi
-      fi
+      if [ -d "$PLUGIN_ROOT/skills/$target" ];       then install_skill   "$target" "$mode"; fi
+      if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then install_command "$target" "$mode"; fi
       report_missing
     fi
     if [ "$mode" = "user" ]; then
-      echo "  → /omg:no-english and /omg:ouroboros-setup remain explicit commands; other skills keep their documented triggers."
-      echo "  → Ouroboros remains explicit-only and externally managed; this installer never installs, updates, or removes its package, state, bridge, Seeds, or execution data."
+      echo "  → /omg:no-english remains an explicit command; other skills keep their documented triggers."
       echo "  → open a NEW gjc session (or run /move .) to load newly installed commands. Re-run after upgrades."
     else
       echo "  → installed for this repo. A new gjc session in this dir will pick them up."

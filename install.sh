@@ -8,7 +8,7 @@
 #                                explicit dev ref) for release-candidate provenance testing.
 #                                Default is the published marketplace (devswha/oh-my-gajae-code).
 #
-# One install brings ALL 4 skills + 5 commands (/omg + 4 /omg:*) — there are no separate/optional plugins. Legacy
+# One install brings ALL 3 skills + 4 commands (/omg + 3 /omg:*) — there are no separate/optional plugins. Legacy
 # args (--core, tower, insane-review, codex-*, lazycodex, gjc-bugwatch) are accepted only
 # to print a migration note; they NEVER add extra plugin installs.
 #
@@ -195,7 +195,7 @@ fi
 
 cat <<DONE
 
-✓ oh-my-gajae-code installed — one plugin, 4 skills + 5 commands (/omg + 4 /omg:*), all native surfaces installed.
+✓ oh-my-gajae-code installed — one plugin, 3 skills + 4 commands (/omg + 3 /omg:*), all native surfaces installed.
   Open a NEW gjc session (or run /move .).
     /omg   → catalog of everything you got
   (Optional: /omg:setup checks prerequisites.)
