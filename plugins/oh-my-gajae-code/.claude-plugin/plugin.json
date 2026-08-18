@@ -1,7 +1,7 @@
 {
   "name": "oh-my-gajae-code",
-  "version": "0.32.3",
-  "description": "oh-my-gajae-code — focused Gajae Code suite with 4 skills and 5 commands. Skills: no-english, extragoal, insane-review, ouroboros. Commands: /omg, /omg:setup, /omg:no-english, /omg:insane-review, /omg:ouroboros-setup. Ouroboros setup is explicit-only, externally installed and upstream-owned (minimum 0.51.7; Python >=3.12); OMG neither bundles it nor its MCP or bridge and never installs or updates it automatically.",
+  "version": "0.32.4",
+  "description": "oh-my-gajae-code — focused Gajae Code suite with 4 skills and 5 commands. Skills: no-english, extragoal, insane-review, ouroboros. Commands: /omg, /omg:setup, /omg:no-english, /omg:insane-review, /omg:ouroboros-setup. Ouroboros is an explicit external compatibility diagnostic; current GJC 0.14.0 lacks the required RPC transport, so OMG reports it unavailable rather than claiming a working bridge.",
   "author": {
     "name": "devswha",
     "email": "devswha@gmail.com",

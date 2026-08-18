@@ -40,13 +40,13 @@ GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한�
 | `/omg:setup` | 설치 표면과 전제조건 확인 (읽기 전용·멱등) | — |
 | `/omg:no-english [on\|off\|status]` | 현재 세션의 한국어 우선 표현 명시 토글 | — |
 | `/omg:insane-review` | GPT-5.6 Sol Pro 웹 코드 리뷰 (API 비용 0) | ChatGPT 구독 + 크로미움 로그인 |
-| `/omg:ouroboros-setup` | 외부 Ouroboros 설치·GJC bridge 확인 및 native update check | Python >=3.12 + `gjc` + `ouroboros-ai` >=0.51.7 |
+| `/omg:ouroboros-setup` | 외부 Ouroboros 설치·버전·GJC RPC 호환성 확인 | Python >=3.12 + `ouroboros-ai` >=0.51.7 + `--mode rpc` 지원 GJC |
 
 > 전제가 붙은 커맨드는 필요한 도구가 없으면 실행 시 안내하고 멈춘다.
 
 ### Ouroboros bridge boundary
 
-원샷 OMG 설치는 skill·command wrapper만 복사하고 Ouroboros를 설치·업데이트하지 않는다. `/omg:ouroboros-setup`은 `ouroboros update --check`만 실행하며, 갱신은 사용자 승인 뒤 `ouroboros update --yes --runtime gjc`로만 한다. Ouroboros 0.51.7의 GJC dispatcher는 다중 턴 인터뷰 continuation과 Seed client-gate attestation을 전달하지 못하므로 OMG plan wrapper는 제공하지 않는다. 계획에는 GJC native `deep-interview`/`ralplan`을 사용한다. bare `ooo ...`는 upstream Ouroboros 명령이고 OMG slash command가 아니다.
+원샷 OMG 설치는 skill·command wrapper만 복사하고 Ouroboros를 설치·업데이트하지 않는다. `/omg:ouroboros-setup`은 버전 확인 뒤 GJC가 Ouroboros 0.51.7에 필요한 `--mode rpc`를 제공하는지 검사한다. 현재 GJC 0.14.0은 이 모드를 제공하지 않아 live 인터뷰가 실패하므로 호환되지 않는 상태로 멈춘다. Ouroboros GJC dispatcher의 다중 턴 continuation과 Seed client-gate attestation도 지원되지 않아 OMG plan wrapper는 제공하지 않는다. 계획에는 GJC native `deep-interview`/`ralplan`을 사용한다.
 
 OMG uninstall은 자체 skill·template만 제거한다. 외부 package, `~/.ouroboros`, GJC bridge extension, MCP state, Seeds, runs는 보존한다.
 

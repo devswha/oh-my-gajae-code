@@ -38,9 +38,9 @@ done
 | 감지 | 읽기 전용 확인 | 기능 |
 |---|---|---|
 | Chrome + ChatGPT | Chrome 프로필 존재 | `/omg:insane-review` |
-| 외부 Ouroboros | 사용자가 별도 설치한 upstream Ouroboros `0.51.7` 이상 + Python `3.12` 이상 | 명시 전용 `/omg:ouroboros-setup` |
+| 외부 Ouroboros | Ouroboros `0.51.7` 이상 + Python `3.12` 이상 + GJC `--mode rpc` 지원 여부 | 명시 전용 `/omg:ouroboros-setup` |
 
-Ouroboros는 OMG가 번들·설치·소유하는 MCP나 bridge가 아닌 외부 upstream 도구다. 이 진단은 이를 설치·업데이트·실행하지 않는다. 업데이트는 절대 자동이 아니며, 사용자가 별도 승인하기 전에는 `ouroboros update --check`만 안내하고, 승인한 경우에만 `ouroboros update --yes --runtime gjc`를 안내한다. OMG는 Ouroboros plan wrapper를 제공하지 않는다.
+Ouroboros는 OMG가 번들·설치·소유하는 MCP나 bridge가 아닌 외부 도구다. 현재 GJC 0.14.0은 Ouroboros 0.51.7이 요구하는 `--mode rpc`를 제공하지 않아 live 인터뷰가 실패한다. 이 진단은 호환되지 않는 상태를 성공으로 표시하지 않으며 Ouroboros plan wrapper도 제공하지 않는다.
 
 ## Step 2 — 출력 형식
 
