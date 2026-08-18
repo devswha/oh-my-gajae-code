@@ -51,6 +51,7 @@ const retiredSkills = [
   "adaptive-response",
   "deep-onboarding",
   "multi-harness-research",
+  "ouroboros",
 ];
 
 const retiredCommands = [
@@ -72,6 +73,7 @@ const retiredCommands = [
   "gate-always",
   "deep-onboarding",
   "multi-harness",
+  "ouroboros-setup",
 ];
 
 describe("removed capability manifests", () => {
@@ -81,8 +83,8 @@ describe("removed capability manifests", () => {
     const expectedRuntimes = parseManifest("EXPECTED_RUNTIMES");
     const removedSkills = parseManifest("REMOVED_SKILLS");
     const removedCommands = parseManifest("REMOVED_COMMANDS");
-    expect(expectedSkills).toHaveLength(4);
-    expect(expectedCommands).toHaveLength(5);
+    expect(expectedSkills).toHaveLength(3);
+    expect(expectedCommands).toHaveLength(4);
     expect(expectedSkills).not.toContain("gajae-app");
     expect(expectedCommands).not.toContain("gajae-app");
 
@@ -90,14 +92,12 @@ describe("removed capability manifests", () => {
       "no-english",
       "extragoal",
       "insane-review",
-      "ouroboros",
     ]);
     expect(expectedCommands).toEqual([
       "omg",
       "setup",
       "no-english",
       "insane-review",
-      "ouroboros-setup",
     ]);
     expect(expectedRuntimes).toEqual([]);
     for (const skill of retiredSkills) expect(removedSkills).toContain(skill);

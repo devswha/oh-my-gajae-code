@@ -9,7 +9,7 @@ argument-hint: "(인자 없음)"
 
 ## Step 0 — 네이티브 표면과 binding 확인
 
-canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 4개 skill과 5개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
+canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 3개 skill과 4개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
 
 ```bash
 root="$HOME/.gjc/agent"
@@ -19,10 +19,10 @@ if test -e "$legacy_suite_binding" || test -L "$legacy_suite_binding"; then
   printf '%s\n' "warning: preserved compatibility fallback binding is present at $legacy_suite_binding; the oh-my-gajae-code binding is canonical" >&2
 fi
 test -f "$new_suite_binding" && test ! -L "$new_suite_binding" || exit 1
-for skill in no-english extragoal insane-review ouroboros; do
+for skill in no-english extragoal insane-review; do
   test -f "$root/skills/$skill/SKILL.md" || exit 1
 done
-for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:ouroboros-setup.md; do
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md; do
   test -f "$root/commands/$command" || exit 1
 done
 ```
@@ -38,9 +38,6 @@ done
 | 감지 | 읽기 전용 확인 | 기능 |
 |---|---|---|
 | Chrome + ChatGPT | Chrome 프로필 존재 | `/omg:insane-review` |
-| 외부 Ouroboros | Ouroboros `0.51.7` 이상 + Python `3.12` 이상 + GJC `--mode rpc` 지원 여부 | 명시 전용 `/omg:ouroboros-setup` |
-
-Ouroboros는 OMG가 번들·설치·소유하는 MCP나 bridge가 아닌 외부 도구다. 현재 GJC 0.14.0은 Ouroboros 0.51.7이 요구하는 `--mode rpc`를 제공하지 않아 live 인터뷰가 실패한다. 이 진단은 호환되지 않는 상태를 성공으로 표시하지 않으며 Ouroboros plan wrapper도 제공하지 않는다.
 
 ## Step 2 — 출력 형식
 

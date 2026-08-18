@@ -1,7 +1,7 @@
 {
   "name": "oh-my-gajae-code",
-  "version": "0.32.4",
-  "description": "oh-my-gajae-code — focused Gajae Code suite with 4 skills and 5 commands. Skills: no-english, extragoal, insane-review, ouroboros. Commands: /omg, /omg:setup, /omg:no-english, /omg:insane-review, /omg:ouroboros-setup. Ouroboros is an explicit external compatibility diagnostic; current GJC 0.14.0 lacks the required RPC transport, so OMG reports it unavailable rather than claiming a working bridge.",
+  "version": "0.33.0",
+  "description": "oh-my-gajae-code — focused Gajae Code suite with 3 skills and 4 commands. Skills: no-english, extragoal, insane-review. Commands: /omg, /omg:setup, /omg:no-english, /omg:insane-review.",
   "author": {
     "name": "devswha",
     "email": "devswha@gmail.com",

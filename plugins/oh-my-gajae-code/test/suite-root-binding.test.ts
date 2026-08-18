@@ -100,6 +100,8 @@ describe("suite root runtime binding", () => {
     const nativeRoot =
       scope === "user" ? join(sandbox.home, ".gjc/agent") : join(sandbox.project, ".gjc");
     const retiredCommand = join(nativeRoot, "commands/omg:easy.md");
+    const retiredOuroborosSkill = join(nativeRoot, "skills/ouroboros/SKILL.md");
+    const retiredOuroborosCommand = join(nativeRoot, "commands/omg:ouroboros-setup.md");
     const userRetiredRuntime = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/binding");
     const userRetiredRunner = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/runner.mjs");
     const userMultiHarnessRuntime = join(sandbox.home, ".gjc/agent/runtimes/multi-harness-research");
@@ -107,14 +109,17 @@ describe("suite root runtime binding", () => {
     const externalOuroborosFiles = new Map<string, string>([
       [join(sandbox.home, ".local/lib/python3.12/site-packages/ouroboros/__init__.py"), "external package"],
       [join(sandbox.home, ".ouroboros/state.json"), "external Ouroboros state"],
+      [join(sandbox.home, ".ouroboros/config.json"), "external Ouroboros config"],
+      [join(sandbox.home, ".ouroboros/credentials.json"), "external Ouroboros credential"],
       [join(sandbox.home, ".gjc/agent/extensions/ouroboros-ooo-bridge/index.ts"), "upstream GJC bridge extension"],
       [join(sandbox.home, ".gjc/mcp/ouroboros/state.json"), "external MCP state"],
+      [join(sandbox.home, ".gjc/plugins/installed_plugins.json"), "upstream GJC plugin state"],
       [join(sandbox.home, ".ouroboros/seeds/approved-seed.json"), "external Seed"],
       [join(sandbox.home, ".ouroboros/executions/run-1.json"), "external execution data"],
       [join(nativeRoot, "commands/oh-my-gjc:ouroboros-setup.md"), "never-owned legacy setup alias"],
     ]);
     const models = join(sandbox.home, ".gjc/agent/models.yml");
-    const expectedSkills = ["no-english", "extragoal", "insane-review", "ouroboros"].map((name) =>
+    const expectedSkills = ["no-english", "extragoal", "insane-review"].map((name) =>
       join(nativeRoot, `skills/${name}/SKILL.md`),
     );
     const expectedCommands = [
@@ -122,7 +127,6 @@ describe("suite root runtime binding", () => {
       "omg:setup.md",
       "omg:no-english.md",
       "omg:insane-review.md",
-      "omg:ouroboros-setup.md",
     ].map((name) => join(nativeRoot, `commands/${name}`));
     mkdirSync(dirname(legacyBinding), { recursive: true, mode: 0o700 });
     chmodSync(dirname(legacyBinding), 0o700);
@@ -135,6 +139,9 @@ describe("suite root runtime binding", () => {
     writeFileSync(otherSuiteBinding, "other suite remains");
     mkdirSync(dirname(retiredCommand), { recursive: true });
     writeFileSync(retiredCommand, "retired command");
+    mkdirSync(dirname(retiredOuroborosSkill), { recursive: true });
+    writeFileSync(retiredOuroborosSkill, "retired OMG wrapper skill");
+    writeFileSync(retiredOuroborosCommand, "retired OMG wrapper command");
     mkdirSync(dirname(userRetiredRuntime), { recursive: true, mode: 0o700 });
     chmodSync(dirname(userRetiredRuntime), 0o700);
     writeFileSync(userRetiredRuntime, `lazycodex-gjc-binding-v1\n${sandbox.home}\n`, { mode: 0o600 });
@@ -164,6 +171,8 @@ describe("suite root runtime binding", () => {
     expect(readFileSync(otherSuiteBinding, "utf8")).toBe("other suite remains");
     expect(readFileSync(legacyBinding, "utf8")).toBe("/legacy/suite/root\n");
     expect(existsSync(retiredCommand)).toBe(false);
+    expect(existsSync(retiredOuroborosSkill)).toBe(false);
+    expect(existsSync(retiredOuroborosCommand)).toBe(false);
     for (const path of [...expectedSkills, ...expectedCommands]) {
       expect(existsSync(path)).toBe(false);
     }

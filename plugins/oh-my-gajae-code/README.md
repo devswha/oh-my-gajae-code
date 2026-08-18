@@ -1,7 +1,7 @@
 # oh-my-gajae-code (plugin)
 
-**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 4개 + 커맨드 5개
-(`/omg` + `/omg:*` 4개)가 전부 들어온다. `insane-review`는 ChatGPT+크로미움이 필요하다.
+**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 3개 + 커맨드 4개
+(`/omg` + `/omg:*` 3개)가 전부 들어온다. `insane-review`는 ChatGPT+크로미움이 필요하다.
 ## v0.28.0 identity cutover
 
 `oh-my-gajae-code` is the canonical repository, marketplace/plugin identity, source `./plugins/oh-my-gajae-code`, and local checkout name. `/omg:*` commands remain unchanged; the migration contract is below.
@@ -21,14 +21,12 @@ bash oh-my-gajae-code/install.sh
 플러그인 marketplace 추가·설치·업데이트·제거는 **터미널의 `gjc plugin …` shell CLI만** 쓴다.
 gjc 세션의 `/plugin …`은 slash command가 아니라 채팅 텍스트다.
 
-## 들어있는 것 (스킬 4 · 커맨드 5)
+## 들어있는 것 (스킬 3 · 커맨드 4)
 
 ### 스킬
-`no-english` · `extragoal` · `insane-review` · `ouroboros`
+`no-english` · `extragoal` · `insane-review`
 
-`no-english`, `ouroboros`는 자연어로 자동 활성화되지 않는다.
-각각 `/omg:no-english`, `/omg:ouroboros-setup`에서만
-명시적으로 불러온다.
+`no-english`는 자연어로 자동 활성화되지 않고 `/omg:no-english`에서만 명시적으로 불러온다.
 `no-english`는 일반 한국어 설명만 다듬으며 `ultragoal`, `ralplan`, `deep-interview`, `team` 같은
 GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한글로 음역하지 않는다.
 
@@ -40,15 +38,13 @@ GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한�
 | `/omg:setup` | 설치 표면과 전제조건 확인 (읽기 전용·멱등) | — |
 | `/omg:no-english [on\|off\|status]` | 현재 세션의 한국어 우선 표현 명시 토글 | — |
 | `/omg:insane-review` | GPT-5.6 Sol Pro 웹 코드 리뷰 (API 비용 0) | ChatGPT 구독 + 크로미움 로그인 |
-| `/omg:ouroboros-setup` | 외부 Ouroboros 설치·버전·GJC RPC 호환성 확인 | Python >=3.12 + `ouroboros-ai` >=0.51.7 + `--mode rpc` 지원 GJC |
 
 > 전제가 붙은 커맨드는 필요한 도구가 없으면 실행 시 안내하고 멈춘다.
 
-### Ouroboros bridge boundary
+### v0.33.0 묘비
 
-원샷 OMG 설치는 skill·command wrapper만 복사하고 Ouroboros를 설치·업데이트하지 않는다. `/omg:ouroboros-setup`은 버전 확인 뒤 GJC가 Ouroboros 0.51.7에 필요한 `--mode rpc`를 제공하는지 검사한다. 현재 GJC 0.14.0은 이 모드를 제공하지 않아 live 인터뷰가 실패하므로 호환되지 않는 상태로 멈춘다. Ouroboros GJC dispatcher의 다중 턴 continuation과 Seed client-gate attestation도 지원되지 않아 OMG plan wrapper는 제공하지 않는다. 계획에는 GJC native `deep-interview`/`ralplan`을 사용한다.
-
-OMG uninstall은 자체 skill·template만 제거한다. 외부 package, `~/.ouroboros`, GJC bridge extension, MCP state, Seeds, runs는 보존한다.
+- **사용자 직접 요청(2026-08-18):** OMG Ouroboros wrapper skill과 `/omg:ouroboros-setup` command를 제거했다.
+- OMG는 external upstream Ouroboros package 0.51.7, `~/.ouroboros`, upstream marketplace/plugin, GJC bridge extension과 MCP state, Seeds, runs, authentication, configuration을 소유하지 않는다. 모두 외부 상태로 보존하며 제거하지 않는다.
 
 ### v0.29.0 묘비
 

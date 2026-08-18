@@ -20,6 +20,13 @@ archive is the browsable record.
 
 ## Entries
 
+### `ouroboros` — removed in v0.33.0 (commit `PENDING`)
+| archived file | original path |
+|---|---|
+| `ouroboros/SKILL.md` | `plugins/oh-my-gajae-code/skills/ouroboros/SKILL.md` |
+| `ouroboros/command-ouroboros-setup.md` | `plugins/oh-my-gajae-code/templates/ouroboros-setup.md` |
+| `ouroboros/ouroboros.test.ts` | `plugins/oh-my-gajae-code/test/ouroboros.test.ts` |
+
 ### `adaptive-response` — removed in v0.32.0 (commit `c798ba9`)
 | archived file | original path |
 |---|---|

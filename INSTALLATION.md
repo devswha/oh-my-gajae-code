@@ -15,7 +15,7 @@ Do exactly the following in a terminal. Do not improvise other steps.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/install.sh | bash
 ```
-One install brings the whole suite (4 skills + 5 commands: `/omg` + 4 `/omg:*`). There are no separate/optional plugins to add. It copies the Ouroboros wrapper surfaces only; it does not install Ouroboros.
+One install brings the whole suite (3 skills + 4 commands: `/omg` + 3 `/omg:*`). There are no separate/optional plugins to add.
 
 ## Manual path (equivalent, if curl|bash is disallowed)
 ```sh
@@ -40,16 +40,16 @@ The self-hosted web UI now lives in [`devswha/claudecodeui`'s canonical SELF-HOS
 ```sh
 gjc plugin list  # must list oh-my-gajae-code@oh-my-gajae-code
 root="$HOME/.gjc/agent"
-for skill in no-english extragoal insane-review ouroboros; do
+for skill in no-english extragoal insane-review; do
   test -f "$root/skills/$skill/SKILL.md" || exit 1
 done
-for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:ouroboros-setup.md; do
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md; do
   test -f "$root/commands/$command" || exit 1
 done
-for skill in workflow-eta easy-answer plain-layer branch-flow worktree gjc-bugwatch multivendor-presets preset-pack release-gate session-observer time-left lazycodex-gjc adaptive-response deep-onboarding multi-harness-research; do
+for skill in workflow-eta easy-answer plain-layer branch-flow worktree gjc-bugwatch multivendor-presets preset-pack release-gate session-observer time-left lazycodex-gjc adaptive-response deep-onboarding multi-harness-research ouroboros; do
   test ! -e "$root/skills/$skill" && test ! -L "$root/skills/$skill" || exit 1
 done
-for retired in easy easy-always plain branchflow-always worktree bugwatch-scan presets preset-pack release session-observer time-left lazycodex-gjc fable gate gate-always deep-onboarding multi-harness; do
+for retired in easy easy-always plain branchflow-always worktree bugwatch-scan presets preset-pack release session-observer time-left lazycodex-gjc fable gate gate-always deep-onboarding multi-harness ouroboros-setup; do
   test ! -e "$root/commands/omg:$retired.md" && test ! -L "$root/commands/omg:$retired.md" || exit 1
 done
 test -f "$root/runtimes/oh-my-gajae-code/root"
@@ -60,13 +60,7 @@ test "$(stat -c %a "$root/runtimes/oh-my-gajae-code/root" 2>/dev/null || stat -f
 Tell the human: open a **new** gjc session (or `/move .`) so the command palette rebuilds, then run `/omg` for the catalog and `/omg:setup` for optional prerequisite checks. Commands are `/omg:<name>`.
 
 ## Safety
-Idempotent — re-running re-copies the 4 skills and 5 commands, removes explicitly retired suite-owned native surfaces, the retired private multi-harness runtime, and well-formed owned `gate-always` marker blocks after backup. It preserves marker-external bytes, malformed markers, unrelated user state, multi-harness research artifacts, external and user authentication/configuration, credentials, and models. `no-english` loads only through session-local `/omg:no-english`; `insane-review` needs ChatGPT+Chromium.
-
-### Ouroboros bridge (explicit-only)
-
-The bridge requires Python >=3.12, `gjc`, and upstream `ouroboros-ai` >=0.51.7. `/omg:ouroboros-setup` checks that external installation and the GJC bridge are available, then runs `ouroboros update --check`; it never silently installs or updates. Run `ouroboros update --yes --runtime gjc` only after user approval.
-
-OMG does not expose a plan wrapper: Ouroboros 0.51.7's GJC dispatcher cannot carry multi-turn interview continuation and Seed client-gate attestations safely. Use native GJC `deep-interview`/`ralplan` for planning. Bare `ooo ...` commands are owned by upstream Ouroboros, not OMG slash commands. Uninstall removes only OMG-owned skills/templates and preserves the external package, `~/.ouroboros`, GJC bridge extension, MCP state, Seeds, and runs.
+Idempotent — re-running re-copies the 3 skills and 4 commands, removes explicitly retired suite-owned native surfaces, the retired private multi-harness runtime, and well-formed owned `gate-always` marker blocks after backup. It preserves marker-external bytes, malformed markers, unrelated user state, multi-harness research artifacts, external and user authentication/configuration, credentials, and models. `no-english` loads only through session-local `/omg:no-english`; `insane-review` needs ChatGPT+Chromium.
 
 ### Auto-update (opt-in)
 Auto-update is OFF by default; the installer never schedules it. To opt in, run `bin/omg-autoupdate.sh enable` (systemd `--user` timer, cron fallback; `--interval <OnCalendar>`, `--local <checkout>` for offline). Each run re-executes the trusted `install.sh` under a single-flight lock, never as root, logging to `${XDG_STATE_HOME:-~/.local/state}/oh-my-gajae-code/autoupdate.log`. `bin/omg-autoupdate.sh disable` removes it, and `install-skill.sh uninstall … user` disables it too.
@@ -86,5 +80,10 @@ Auto-update is OFF by default; the installer never schedules it. To opt in, run 
 
 - **Direct user request (2026-08-18):** `adaptive-response`, `deep-onboarding`, and `multi-harness-research` and their associated commands were removed; the multi-harness private native runtime was retired.
 - Upgrade cleanup removes only suite-owned native surfaces, that private runtime, and well-formed owned `gate-always` marker blocks after backup. It preserves marker-external bytes, malformed markers, multi-harness research artifacts, external and user authentication/configuration, credentials, models, and unrelated state.
+
+### v0.33.0 tombstone
+
+- **Direct user request (2026-08-18):** the OMG Ouroboros wrapper skill and `/omg:ouroboros-setup` command were removed.
+- Cleanup removes only those former OMG-owned wrapper surfaces. The external upstream Ouroboros package 0.51.7, `~/.ouroboros`, its upstream marketplace/plugin, GJC bridge extension and MCP state, Seeds, runs, authentication, and configuration remain external and must not be removed.
 
 When run inside a git repository, upgrade/uninstall also backs up that repository's `AGENTS.md` and removes only one well-formed retired `oh-my-gjc:branchflow` marker block. It never deletes `docs/WORKFLOW.md`. Run the installer once from each repository where `/omg:branchflow-always on` was previously enabled, then review the preserved workflow document manually.
