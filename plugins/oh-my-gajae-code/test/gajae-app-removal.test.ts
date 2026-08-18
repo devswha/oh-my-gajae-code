@@ -74,8 +74,8 @@ describe("removed capability manifests", () => {
     const expectedRuntimes = parseManifest("EXPECTED_RUNTIMES");
     const removedSkills = parseManifest("REMOVED_SKILLS");
     const removedCommands = parseManifest("REMOVED_COMMANDS");
-    expect(expectedSkills).toHaveLength(6);
-    expect(expectedCommands).toHaveLength(8);
+    expect(expectedSkills).toHaveLength(7);
+    expect(expectedCommands).toHaveLength(9);
     expect(expectedSkills).not.toContain("gajae-app");
     expect(expectedCommands).not.toContain("gajae-app");
 
@@ -86,6 +86,7 @@ describe("removed capability manifests", () => {
       "insane-review",
       "deep-onboarding",
       "multi-harness-research",
+      "ouroboros",
     ]);
     expect(expectedCommands).toEqual([
       "omg",
@@ -96,6 +97,7 @@ describe("removed capability manifests", () => {
       "insane-review",
       "deep-onboarding",
       "multi-harness",
+      "ouroboros-setup",
     ]);
     expect(expectedRuntimes).toEqual([
       "bin/multi-harness-research.mjs",

@@ -103,8 +103,17 @@ describe("suite root runtime binding", () => {
     const userRetiredRuntime = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/binding");
     const userRetiredRunner = join(sandbox.home, ".gjc/agent/runtimes/lazycodex-gjc/runner.mjs");
     const userMultiHarnessRuntime = join(sandbox.home, ".gjc/agent/runtimes/multi-harness-research");
+    const externalOuroborosFiles = new Map<string, string>([
+      [join(sandbox.home, ".local/lib/python3.12/site-packages/ouroboros/__init__.py"), "external package"],
+      [join(sandbox.home, ".ouroboros/state.json"), "external Ouroboros state"],
+      [join(sandbox.home, ".gjc/agent/extensions/ouroboros-ooo-bridge/index.ts"), "upstream GJC bridge extension"],
+      [join(sandbox.home, ".gjc/mcp/ouroboros/state.json"), "external MCP state"],
+      [join(sandbox.home, ".ouroboros/seeds/approved-seed.json"), "external Seed"],
+      [join(sandbox.home, ".ouroboros/executions/run-1.json"), "external execution data"],
+      [join(nativeRoot, "commands/oh-my-gjc:ouroboros-setup.md"), "never-owned legacy setup alias"],
+    ]);
     const models = join(sandbox.home, ".gjc/agent/models.yml");
-    const expectedSkills = ["adaptive-response", "no-english", "extragoal", "insane-review", "deep-onboarding", "multi-harness-research"].map((name) =>
+    const expectedSkills = ["adaptive-response", "no-english", "extragoal", "insane-review", "deep-onboarding", "multi-harness-research", "ouroboros"].map((name) =>
       join(nativeRoot, `skills/${name}/SKILL.md`),
     );
     const expectedCommands = [
@@ -116,6 +125,7 @@ describe("suite root runtime binding", () => {
       "omg:insane-review.md",
       "omg:deep-onboarding.md",
       "omg:multi-harness.md",
+      "omg:ouroboros-setup.md",
     ].map((name) => join(nativeRoot, `commands/${name}`));
     mkdirSync(dirname(legacyBinding), { recursive: true, mode: 0o700 });
     chmodSync(dirname(legacyBinding), 0o700);
@@ -136,6 +146,10 @@ describe("suite root runtime binding", () => {
     chmodSync(userRetiredRunner, 0o700);
     mkdirSync(userMultiHarnessRuntime, { recursive: true });
     writeFileSync(join(userMultiHarnessRuntime, "binding"), "multi-harness runtime");
+    for (const [path, content] of externalOuroborosFiles) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+    }
     mkdirSync(dirname(models), { recursive: true });
     writeFileSync(models, "profiles:\n  user-owned: {}\n");
 
@@ -157,6 +171,9 @@ describe("suite root runtime binding", () => {
     }
     if (scope === "user") expect(existsSync(userMultiHarnessRuntime)).toBe(false);
     else expect(readFileSync(join(userMultiHarnessRuntime, "binding"), "utf8")).toBe("multi-harness runtime");
+    for (const [path, content] of externalOuroborosFiles) {
+      expect(readFileSync(path, "utf8")).toBe(content);
+    }
     expect(readFileSync(models, "utf8")).toBe("profiles:\n  user-owned: {}\n");
   });
 

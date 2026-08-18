@@ -42,8 +42,8 @@ done
 PLUGIN_ROOT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 
 # ── EXPECTED manifest (the single source of truth for a complete install) ────────────
-EXPECTED_SKILLS=(adaptive-response no-english extragoal insane-review deep-onboarding multi-harness-research)
-EXPECTED_COMMANDS=(omg setup gate gate-always no-english insane-review deep-onboarding multi-harness)
+EXPECTED_SKILLS=(adaptive-response no-english extragoal insane-review deep-onboarding multi-harness-research ouroboros)
+EXPECTED_COMMANDS=(omg setup gate gate-always no-english insane-review deep-onboarding multi-harness ouroboros-setup)
 EXPECTED_RUNTIMES=(bin/multi-harness-research.mjs)
 # Upgrades sweep only native files and dedicated runtime state owned by capabilities
 # retired from this suite.
@@ -51,13 +51,16 @@ REMOVED_SKILLS=(gate-briefing korean-first workflow-eta time-left codex-deepwork
 REMOVED_COMMANDS=(fable time-left codex-run codex-app-launch codex-app-ask codex-ask lazycodex-setup lazycodex-work lazycodex-gjc tower-setup gajae-app presets preset-pack release easy easy-always plain branchflow-always worktree bugwatch-scan session-observer)
 # Pre-0.8.1 native files that upgrades must sweep away: the 17 one-release deprecation
 # tombstones shipped by 0.8.0 (removed in 0.8.1). Old `oh-my-gjc:<name>.md` aliases are
-# covered separately by looping EXPECTED_COMMANDS in cleanup_legacy_commands.
+# covered separately by the explicit historically-owned alias inventory below.
 LEGACY_COMMANDS=('codex-app-control:ask' 'codex-app-control:launch' 'codex-cli-control:ask' \
                  'codex-deepwork:run' 'gjc-bugwatch:scan' 'insane-review:review' \
                  'lazycodex:setup' 'lazycodex:work' 'oh-my-gjc:branchflow-always' \
                  'oh-my-gjc:easy-always' 'oh-my-gjc:easy' 'oh-my-gjc:fable' \
                  'oh-my-gjc:gate-always' 'oh-my-gjc:gate' 'oh-my-gjc:presets' \
                  'oh-my-gjc:setup' 'tower:setup')
+# Only commands that actually shipped under the former suite namespace are owned aliases.
+# New capabilities must never expand this destructive cleanup inventory.
+LEGACY_OH_MY_GJC_ALIASES=(omg setup gate gate-always no-english insane-review deep-onboarding multi-harness)
 
 skills_dir()   { if [ "$1" = project ]; then echo "$PWD/.gjc/skills";   else echo "$HOME/.gjc/agent/skills";   fi; }
 commands_dir() { if [ "$1" = project ]; then echo "$PWD/.gjc/commands"; else echo "$HOME/.gjc/agent/commands"; fi; }
@@ -641,7 +644,7 @@ cleanup_legacy_commands() { # $1=scope — drop pre-0.8.1 leftovers (0.8.0 tombs
   for n in "${LEGACY_COMMANDS[@]}"; do
     if [ -f "$d/$n.md" ] || [ -L "$d/$n.md" ]; then rm -f "$d/$n.md"; removed=$((removed+1)); fi
   done
-  for n in "${EXPECTED_COMMANDS[@]}"; do
+  for n in "${LEGACY_OH_MY_GJC_ALIASES[@]}"; do
     if [ -f "$d/oh-my-gjc:$n.md" ] || [ -L "$d/oh-my-gjc:$n.md" ]; then rm -f "$d/oh-my-gjc:$n.md"; removed=$((removed+1)); fi
   done
   if [ "$removed" -gt 0 ]; then echo "✓ cleaned $removed legacy command file(s) (pre-0.8.1 tombstones/aliases)"; fi
@@ -760,7 +763,22 @@ install_command() { # $1=name $2=scope
   echo "✓ command ($2): $dir/omg:$1.md  → /omg:$1"
 }
 uninstall_skill()     { rm -rf "$(skills_dir "$2")/$1"; echo "✓ removed skill: $1"; }
-uninstall_command()   { local d; d="$(commands_dir "$2")"; if [ "$1" = "omg" ]; then rm -f "$d/omg.md"; else rm -f "$d/omg:$1.md" "$d/oh-my-gjc:$1.md"; fi; echo "✓ removed command: $1"; }
+owns_legacy_command_alias() {
+  local candidate
+  for candidate in "${LEGACY_OH_MY_GJC_ALIASES[@]}"; do [ "$candidate" = "$1" ] && return 0; done
+  return 1
+}
+uninstall_command() {
+  local d
+  d="$(commands_dir "$2")"
+  if [ "$1" = "omg" ]; then
+    rm -f "$d/omg.md"
+  else
+    rm -f "$d/omg:$1.md"
+    if owns_legacy_command_alias "$1"; then rm -f "$d/oh-my-gjc:$1.md"; fi
+  fi
+  echo "✓ removed command: $1"
+}
 
 report_missing() {
   if [ "${#MISSING[@]}" -gt 0 ]; then
@@ -818,6 +836,9 @@ case "$mode" in
         uninstall_skill multi-harness-research "$scope"
         uninstall_command multi-harness "$scope"
         if [ "$scope" = "user" ]; then uninstall_multi_harness_runtime; fi
+      elif [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
+        uninstall_skill ouroboros "$scope"
+        uninstall_command ouroboros-setup "$scope"
       else
         if [ -d "$PLUGIN_ROOT/skills/$target" ];       then uninstall_skill   "$target" "$scope"; fi
         if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then uninstall_command "$target" "$scope"; fi
@@ -861,11 +882,19 @@ case "$mode" in
         else
           echo "! project multi-harness surfaces installed; execution remains disabled without the private user-scope runtime binding" >&2
         fi
+      elif [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
+        for r in skills/ouroboros/SKILL.md templates/ouroboros-setup.md; do
+          [ -f "$PLUGIN_ROOT/$r" ] && [ ! -L "$PLUGIN_ROOT/$r" ] || MISSING+=("$r")
+        done
+        report_missing
       fi
       install_suite_root_binding "$mode"
       if [ "$target" = "multi-harness-research" ] || [ "$target" = "multi-harness" ]; then
         install_skill multi-harness-research "$mode"
         install_command multi-harness "$mode"
+      elif [ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]; then
+        install_skill ouroboros "$mode"
+        install_command ouroboros-setup "$mode"
       else
         if [ -d "$PLUGIN_ROOT/skills/$target" ];       then install_skill   "$target" "$mode"; fi
         if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then install_command "$target" "$mode"; fi
@@ -873,7 +902,8 @@ case "$mode" in
       report_missing
     fi
     if [ "$mode" = "user" ]; then
-      echo "  → adaptive-response, no-english, and multi-harness-research require their explicit /omg:* commands; other skills keep their documented triggers."
+      echo "  → adaptive-response, no-english, multi-harness-research, and ouroboros require their explicit /omg:* commands; other skills keep their documented triggers."
+      echo "  → Ouroboros remains explicit-only and externally managed; this installer never installs, updates, or removes its package, state, bridge, Seeds, or execution data."
       echo "  → open a NEW gjc session (or run /move .) to load newly installed commands. Re-run after upgrades."
     else
       echo "  → installed for this repo. A new gjc session in this dir will pick them up."

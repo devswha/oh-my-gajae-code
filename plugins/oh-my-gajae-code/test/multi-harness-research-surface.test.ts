@@ -188,7 +188,7 @@ describe("multi-harness research surface", () => {
     expect(command.replace(/\s+/g, " ")).toContain("full lane documents, task bytes, raw stdout/stderr, credentials, auth state, or finalization receipt");
   });
 
-  test("has exactly six skills and eight native command templates at this surface", () => {
+  test("has exactly seven skills and ten native command templates at this surface", () => {
     expect(nativeSkillNames()).toEqual([
       "adaptive-response",
       "deep-onboarding",
@@ -196,6 +196,7 @@ describe("multi-harness research surface", () => {
       "insane-review",
       "multi-harness-research",
       "no-english",
+      "ouroboros",
     ]);
     expect(nativeCommandNames()).toEqual([
       "deep-onboarding.md",
@@ -205,6 +206,7 @@ describe("multi-harness research surface", () => {
       "multi-harness.md",
       "no-english.md",
       "omg.md",
+      "ouroboros-setup.md",
       "setup.md",
     ]);
   });

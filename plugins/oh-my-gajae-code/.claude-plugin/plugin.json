@@ -1,7 +1,7 @@
 {
   "name": "oh-my-gajae-code",
   "version": "0.30.0",
-  "description": "oh-my-gajae-code — focused Gajae Code suite with 6 skills and 8 commands. Skills: adaptive-response, no-english, extragoal, insane-review, deep-onboarding, multi-harness-research. Commands: /omg, /omg:setup, /omg:gate, /omg:gate-always, /omg:no-english, /omg:insane-review, /omg:deep-onboarding, /omg:multi-harness. Multi-harness research is explicit-only, directly fans one identical task to exactly four read-only harnesses, and writes results only outside the project in XDG state; it requires Linux, bubblewrap, existing provider logins, and a private user runtime binding.",
+  "description": "oh-my-gajae-code — focused Gajae Code suite with 7 skills and 9 commands. Skills: adaptive-response, no-english, extragoal, insane-review, deep-onboarding, multi-harness-research, ouroboros. Commands: /omg, /omg:setup, /omg:gate, /omg:gate-always, /omg:no-english, /omg:insane-review, /omg:deep-onboarding, /omg:multi-harness, /omg:ouroboros-setup. Multi-harness research is explicit-only, directly fans one identical task to exactly four read-only harnesses, and writes results only outside the project in XDG state; it requires Linux, bubblewrap, existing provider logins, and a private user runtime binding. Ouroboros setup is explicit-only, externally installed and upstream-owned (minimum 0.51.7; Python >=3.12); OMG neither bundles it nor its MCP or bridge and never installs or updates it automatically.",
   "author": {
     "name": "devswha",
     "email": "devswha@gmail.com",
