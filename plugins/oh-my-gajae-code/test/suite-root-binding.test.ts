@@ -80,6 +80,28 @@ describe("suite root runtime binding", () => {
     expect(statSync(binding).mode & 0o777).toBe(0o600);
     expect(statSync(dirname(binding)).mode & 0o777).toBe(0o700);
   });
+  test.each(["user", "project"] as const)("installs exactly the five %s skills and commands", (scope) => {
+    const sandbox = createSandbox();
+    const nativeRoot =
+      scope === "user" ? join(sandbox.home, ".gjc/agent") : join(sandbox.project, ".gjc");
+    const result = run(sandbox, ["all", scope]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readdirSync(join(nativeRoot, "skills")).sort()).toEqual([
+      "extragoal",
+      "gpt-image",
+      "insane-review",
+      "insane-search",
+      "no-english",
+    ]);
+    expect(readdirSync(join(nativeRoot, "commands")).sort()).toEqual([
+      "omg.md",
+      "omg:gpt-image.md",
+      "omg:insane-review.md",
+      "omg:no-english.md",
+      "omg:setup.md",
+    ]);
+  });
   test.each(["user", "project"] as const)("binds a single native %s capability to the suite root", (scope) => {
     const sandbox = createSandbox();
     const result = run(sandbox, ["no-english", scope]);
@@ -119,7 +141,7 @@ describe("suite root runtime binding", () => {
       [join(nativeRoot, "commands/oh-my-gjc:ouroboros-setup.md"), "never-owned legacy setup alias"],
     ]);
     const models = join(sandbox.home, ".gjc/agent/models.yml");
-    const expectedSkills = ["no-english", "extragoal", "insane-review"].map((name) =>
+    const expectedSkills = ["no-english", "extragoal", "insane-review", "insane-search", "gpt-image"].map((name) =>
       join(nativeRoot, `skills/${name}/SKILL.md`),
     );
     const expectedCommands = [
@@ -127,6 +149,7 @@ describe("suite root runtime binding", () => {
       "omg:setup.md",
       "omg:no-english.md",
       "omg:insane-review.md",
+      "omg:gpt-image.md",
     ].map((name) => join(nativeRoot, `commands/${name}`));
     mkdirSync(dirname(legacyBinding), { recursive: true, mode: 0o700 });
     chmodSync(dirname(legacyBinding), 0o700);

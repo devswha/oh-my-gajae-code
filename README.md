@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/insta
 Install oh-my-gajae-code by following https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/INSTALLATION.md — run the steps, verify, and report.
 ```
 
-한 번 설치하면 스킬 3개와 커맨드 4개(`/omg` 및 `/omg:*` 3개)가 모두 설치됩니다. 업그레이드할 때는 원샷 설치 명령을 다시 실행합니다.
+한 번 설치하면 스킬 5개와 커맨드 5개(`/omg` 및 `/omg:*` 4개)가 모두 설치됩니다. 업그레이드할 때는 원샷 설치 명령을 다시 실행합니다.
 
 설치가 안 되면 저장소를 받은 뒤 같은 설치 프로그램을 실행합니다.
 
@@ -43,7 +43,19 @@ bash oh-my-gajae-code/install.sh
 
 검증하지 못한 모델, 첨부되지 않은 패킹 파일, 잘린 프롬프트, 시간 초과, 빈 응답에서는 실패로 종료합니다. 결과 파일은 프로젝트 `.insane-review/`에 저장되며 외부 웹 서비스로 코드를 보낼 수 있으므로 개인 구독 용도로만 사용합니다.
 
-커맨드: `/omg`, `/omg:setup`, `/omg:no-english`, `/omg:insane-review`
+### `insane-search`
+
+일반 `read` 또는 웹 접근이 402·403·WAF·challenge·불완전한 SPA로 막혔을 때, 또는 X/Twitter, Reddit, YouTube 같은 알려진 공개 플랫폼 경로에서만 자동 활성화합니다. 일반 검색이나 이미 읽을 수 있는 페이지에는 사용하지 않습니다.
+
+공식 공개 route를 먼저 사용하고, 그 밖의 공개 URL은 SSRF-pinned TLS grid로 읽습니다. API 키나 로그인은 필요하지 않으며 CAPTCHA, paywall, 인증 우회는 하지 않습니다. 의존성은 확인만 하고 자동 설치하지 않으며, 가져온 페이지 본문은 항상 신뢰하지 않는 외부 데이터로 취급합니다.
+
+### `gpt-image`
+
+`/omg:gpt-image`로만 명시적으로 실행하는 ChatGPT Images 웹 생성입니다. 사용자의 로그인된 ChatGPT 구독과 전용 CDP 프로필을 사용하며, POSIX 환경, Playwright와 Chrome/Chromium CDP가 필요합니다. 자동 로그인이나 API·백엔드 fallback은 제공하지 않습니다.
+
+결과는 원본 **Save** 동작으로만 저장하고, PNG와 provenance를 프로젝트 `.gpt-image/` 아래 mode `0600`으로 보관합니다. `insane-review`와 동시에 실행하지 않습니다.
+
+커맨드: `/omg`, `/omg:setup`, `/omg:no-english`, `/omg:insane-review`, `/omg:gpt-image`
 
 각 기능의 활성 조건, 안전 경계, 전제 조건은 [기능 안내](./docs/capabilities.md)를 확인합니다.
 
@@ -51,6 +63,8 @@ bash oh-my-gajae-code/install.sh
 
 - `gjc`를 설치하고 필요한 모델 공급자에 로그인합니다.
 - `insane-review`는 ChatGPT 구독과 chatgpt.com에 로그인한 Chromium 계열 브라우저의 CDP `:9222`가 필요합니다.
+- `insane-search`의 핵심 의존성은 Python 3, `curl_cffi>=0.15`, `bs4`, `PyYAML`, `markdownify`이며, YouTube 등 미디어 경로에는 선택적으로 `yt-dlp`가 필요합니다. 누락된 의존성은 자동 설치하지 않습니다.
+- `gpt-image`는 POSIX 환경, ChatGPT 구독, Playwright, 그리고 chatgpt.com에 로그인한 전용 Chrome/Chromium CDP 프로필이 필요합니다.
 
 설치와 환경 설정은 [INSTALLATION.md](./INSTALLATION.md), 상세 기능은 [기능 안내](./docs/capabilities.md), 식별자 변경과 제거 이력은 [마이그레이션 안내](./docs/migrations.md), 삭제된 소스 기록은 [보관 목록](./docs/removed/README.md)을 참고합니다.
 

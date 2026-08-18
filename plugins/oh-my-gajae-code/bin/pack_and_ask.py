@@ -32,6 +32,11 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+BIN_DIR = Path(__file__).resolve().parent
+if str(BIN_DIR) not in sys.path:
+    sys.path.insert(0, str(BIN_DIR))
+from cdp_lock import CdpLease
+
 # ---- 선택 의존성(라이브 모드에서만 필요) ----
 try:
     import pyperclip
@@ -49,11 +54,14 @@ COMET_PATH = os.environ.get("INSANE_REVIEW_COMET", "/Applications/Comet.app/Cont
 CHROME_PATH = os.environ.get("INSANE_REVIEW_CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 CDP_PORT = int(os.environ.get("INSANE_REVIEW_CDP_PORT", "9222"))
 CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
+
+
 # 전용(격리) 프로필 — 사용자 주 브라우저 세션과 분리. Chrome 136+는 '기본 프로필'에서
 # --remote-debugging-port를 정책적으로 무시하므로(쿠키 탈취 방지), 이 별도 user-data-dir이
 # 없으면 디버그 포트가 아예 안 열린다. 모든 OS 공통으로 전용 프로필을 쓴다.
-BROWSER_PROFILE_DIR = Path(os.environ.get(
-    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser().resolve()
+BROWSER_PROFILE_INPUT = Path(os.environ.get(
+    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser()
+BROWSER_PROFILE_DIR = BROWSER_PROFILE_INPUT.resolve()
 # 선택한 브라우저를 영속화(재질문 방지) — 우선순위: --browser > env > config 저장값 > 첫 감지.
 CONFIG_PATH = Path(os.environ.get(
     "INSANE_REVIEW_CONFIG", str(Path.home() / ".insane-review" / "config.json")))
@@ -413,18 +421,32 @@ def resolve_browser(name_or_path: str | None) -> tuple[str, str] | None:
 def _prepare_browser_profile() -> bool:
     """Create and verify the credential-bearing dedicated profile."""
     try:
-        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        if not BROWSER_PROFILE_DIR.is_dir():
-            raise OSError("profile path is not a directory")
-        if os.name != "nt":
-            os.chmod(BROWSER_PROFILE_DIR, 0o700)
-            profile_stat = BROWSER_PROFILE_DIR.stat()
-            if stat.S_IMODE(profile_stat.st_mode) != 0o700:
-                raise OSError("profile permissions are not 0700")
-            if hasattr(os, "geteuid") and profile_stat.st_uid != os.geteuid():
-                raise OSError("profile is not owned by the current user")
+        home = Path.home().resolve()
+        requested = BROWSER_PROFILE_INPUT.absolute()
+        relative = requested.relative_to(home)
+        current = home
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise OSError(f"symlinked profile component: {current}")
+            if current.exists():
+                details = current.lstat()
+                if not stat.S_ISDIR(details.st_mode):
+                    raise OSError(f"profile component is not a directory: {current}")
+            else:
+                current.mkdir(mode=0o700)
+                details = current.lstat()
+            if uid is not None and details.st_uid != uid:
+                raise OSError(f"profile component is not owned by the current user: {current}")
+            if os.name != "nt":
+                os.chmod(current, 0o700)
+                if stat.S_IMODE(current.lstat().st_mode) != 0o700:
+                    raise OSError(f"profile component permissions are not 0700: {current}")
+        if requested.resolve(strict=True) != BROWSER_PROFILE_DIR:
+            raise OSError("profile path is not canonical")
         return True
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         print(f"  ❌ 전용 브라우저 프로필 보안 설정 실패: {str(exc)[:100]}")
         return False
 
@@ -436,7 +458,11 @@ def _cdp_matches_dedicated_profile() -> bool:
         receipt_stat = receipt.lstat()
         if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
             return False
-        if receipt_stat.st_size > 4096:
+        if (
+            (hasattr(os, "geteuid") and receipt_stat.st_uid != os.geteuid())
+            or (os.name != "nt" and stat.S_IMODE(receipt_stat.st_mode) & 0o077)
+            or receipt_stat.st_size > 4096
+        ):
             return False
         lines = receipt.read_text(encoding="utf-8").splitlines()
         if len(lines) < 2 or lines[0].strip() != str(CDP_PORT):
@@ -1610,19 +1636,21 @@ def main():
     args = ap.parse_args()
 
     if args.check_env:
-        sys.exit(check_env(do_install=args.install))
+        with CdpLease(CDP_PORT):
+            sys.exit(check_env(do_install=args.install))
 
     if args.ensure_env:
         # 저장값-only 자동기동: CDP가 '닫힘'(down)이고 저장된 브라우저가 해석되면 한 번만 띄운다.
         # browser=wrong(포트를 다른 프로세스가 점유)이거나 저장값이 없으면 자동기동하지 않고,
         # check_env가 상태만 보고한다 → 커맨드가 그때만 사용자에게 묻는다(최초 1회 온보딩).
-        if not is_port_open(CDP_PORT):
-            saved = _load_config().get("browser")
-            if saved:
-                r = resolve_browser(saved)   # 인자 지정 경로 → 첫감지 폴백 없음(저장값-only)
-                if r:
-                    launch_browser_exe(r[1])
-        sys.exit(check_env(do_install=args.install))
+        with CdpLease(CDP_PORT):
+            if not is_port_open(CDP_PORT):
+                saved = _load_config().get("browser")
+                if saved:
+                    r = resolve_browser(saved)   # 인자 지정 경로 → 첫감지 폴백 없음(저장값-only)
+                    if r:
+                        launch_browser_exe(r[1])
+            sys.exit(check_env(do_install=args.install))
 
     if args.list_browsers:
         bs = detect_browsers()
@@ -1639,11 +1667,12 @@ def main():
             avail = ", ".join(n for n, _ in detect_browsers()) or "없음"
             sys.exit(f"❌ 브라우저를 찾지 못함 (지정='{args.launch_browser}', 감지=[{avail}])")
         name, path = resolved
-        if launch_browser_exe(path):
-            save_browser_choice(name)
-            print(f"STATUS_LAUNCH ok browser={name}")
-            sys.exit(0)
-        sys.exit("❌ 브라우저 실행/CDP 확인 실패")
+        with CdpLease(CDP_PORT):
+            if launch_browser_exe(path):
+                save_browser_choice(name)
+                print(f"STATUS_LAUNCH ok browser={name}")
+                sys.exit(0)
+            sys.exit("❌ 브라우저 실행/CDP 확인 실패")
 
     # --require-model은 모델 검증 경로(select_model)에서만 효력 → --model 없이 단독 사용 시 검증이 통째로
     # 스킵되는 fail-open을 차단(fail-closed). 모델/추론단계를 함께 지정해야 검증이 돈다.
@@ -1715,6 +1744,11 @@ def main():
     prompt = (args.prompt or positional
               or (Path(args.prompt_file).read_text(encoding="utf-8") if args.prompt_file else None)
               or DEFAULT_PROMPT)
+
+    try:
+        cdp_lease = CdpLease(CDP_PORT).acquire()
+    except RuntimeError as exc:
+        sys.exit(f"❌ {exc}")
 
     resolved_browser = resolve_browser(args.browser)
     bname = resolved_browser[0] if resolved_browser else (args.browser or "자동감지")
@@ -1875,6 +1909,7 @@ def main():
     else:
         print("─" * 50)
         print(response[:800] + ("\n...(생략)" if len(response) > 800 else ""))
+    cdp_lease.release()
 
 
 if __name__ == "__main__":

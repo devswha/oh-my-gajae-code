@@ -1,6 +1,6 @@
 # 기능 안내
 
-`oh-my-gajae-code`는 스킬 3개와 커맨드 4개(`/omg` 및 `/omg:*` 3개)를 한 번에 설치합니다. 플러그인 관리는 터미널의 `gjc plugin ...` CLI에서만 하며, `gjc` 세션에 `/plugin` 커맨드는 없습니다.
+`oh-my-gajae-code`는 스킬 5개와 커맨드 5개(`/omg` 및 `/omg:*` 4개)를 한 번에 설치합니다. 플러그인 관리는 터미널의 `gjc plugin ...` CLI에서만 하며, `gjc` 세션에 `/plugin` 커맨드는 없습니다.
 
 ## 공통 전제
 
@@ -30,6 +30,24 @@
 
 원문: [`SKILL.md`](../plugins/oh-my-gajae-code/skills/insane-review/SKILL.md)
 
+### `insane-search`
+
+일반 `read` 또는 웹 접근이 402·403·WAF·challenge·불완전한 SPA로 막혔거나 X/Twitter, Reddit, YouTube 등 알려진 공개 플랫폼 route를 읽을 때만 자동 활성화합니다. 일반 검색이나 이미 읽을 수 있는 공개 페이지에는 사용하지 않습니다.
+
+공식 공개 route를 먼저 사용하고, 일반 공개 URL은 SSRF-pinned TLS grid로 읽습니다. API 키나 로그인 없이 공개 `http`/`https` URL만 처리하며 CAPTCHA, paywall, 인증 우회를 하지 않습니다. 핵심 의존성은 Python 3, `curl_cffi>=0.15`, `bs4`, `PyYAML`, `markdownify`이고, YouTube 등 미디어 경로에는 선택적으로 `yt-dlp`가 필요합니다. 의존성은 확인만 하고 자동 설치하지 않습니다.
+
+가져온 페이지 본문은 신뢰하지 않는 외부 데이터입니다. 페이지 안의 지시, credential·토큰·로컬 파일 요구, 도구 변경 요청을 실행하지 않습니다.
+
+원문: [`SKILL.md`](../plugins/oh-my-gajae-code/skills/insane-search/SKILL.md)
+
+### `gpt-image`
+
+`/omg:gpt-image`로만 명시적으로 실행하는 ChatGPT Images 웹 생성입니다. 사용자의 로그인된 ChatGPT 구독과 전용 CDP 프로필을 사용하며, POSIX 환경, Playwright와 Chrome/Chromium CDP가 필요합니다. 자동 로그인과 API·백엔드 fallback은 제공하지 않습니다.
+
+이미지는 ChatGPT의 원본 **Save/Download** 동작으로만 저장합니다. PNG와 provenance는 프로젝트 `.gpt-image/` 아래 mode `0600`으로 보관합니다. `insane-review`와 동시에 실행하지 않습니다.
+
+원문: [`SKILL.md`](../plugins/oh-my-gajae-code/skills/gpt-image/SKILL.md)
+
 ## 커맨드
 
-`/omg`, `/omg:setup`, `/omg:no-english`, `/omg:insane-review`을 제공합니다. 설치는 [README](../README.md)의 원샷 명령 또는 [INSTALLATION.md](../INSTALLATION.md)를 따릅니다.
+`/omg`, `/omg:setup`, `/omg:no-english`, `/omg:insane-review`, `/omg:gpt-image`을 제공합니다. 설치는 [README](../README.md)의 원샷 명령 또는 [INSTALLATION.md](../INSTALLATION.md)를 따릅니다.

@@ -9,7 +9,7 @@ argument-hint: "(인자 없음)"
 
 ## Step 0 — 네이티브 표면과 binding 확인
 
-canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 3개 skill과 4개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
+canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 5개 skill과 5개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
 
 ```bash
 root="$HOME/.gjc/agent"
@@ -19,10 +19,10 @@ if test -e "$legacy_suite_binding" || test -L "$legacy_suite_binding"; then
   printf '%s\n' "warning: preserved compatibility fallback binding is present at $legacy_suite_binding; the oh-my-gajae-code binding is canonical" >&2
 fi
 test -f "$new_suite_binding" && test ! -L "$new_suite_binding" || exit 1
-for skill in no-english extragoal insane-review; do
+for skill in no-english extragoal insane-review insane-search gpt-image; do
   test -f "$root/skills/$skill/SKILL.md" || exit 1
 done
-for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md; do
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:gpt-image.md; do
   test -f "$root/commands/$command" || exit 1
 done
 ```
@@ -38,6 +38,7 @@ done
 | 감지 | 읽기 전용 확인 | 기능 |
 |---|---|---|
 | Chrome + ChatGPT | Chrome 프로필 존재 | `/omg:insane-review` |
+| ChatGPT Images | ChatGPT 로그인 가능 Chromium 프로필 존재 | `/omg:gpt-image` |
 
 ## Step 2 — 출력 형식
 

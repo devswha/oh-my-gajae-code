@@ -25,12 +25,17 @@ const skillNames = readdirSync(join(pluginRoot, "skills"), { withFileTypes: true
   .filter((entry) => entry.isDirectory() && existsSync(join(pluginRoot, "skills", entry.name, "SKILL.md")))
   .map((entry) => entry.name)
   .sort();
+const expectedSkillNames = ["extragoal", "gpt-image", "insane-review", "insane-search", "no-english"];
 
 const templateNames = readdirSync(join(pluginRoot, "templates"))
   .filter((name) => name.endsWith(".md"))
   .sort();
 
 describe("skill frontmatter is valid YAML", () => {
+  test("the native suite exposes exactly the five supported skills", () => {
+    expect(skillNames).toEqual(expectedSkillNames);
+  });
+
   test.each(skillNames)("skills/%s/SKILL.md parses with name + description", (name) => {
     const fm = frontmatter(join(pluginRoot, "skills", name, "SKILL.md"));
     const doc = YAML.parse(fm) as Record<string, unknown>;
@@ -51,7 +56,7 @@ describe("command template frontmatter is valid YAML", () => {
 describe("backtick-leading descriptions stay quoted", () => {
   // These descriptions intentionally lead with an `/omg:...` command in backticks; the
   // value MUST be quoted so it is not parsed as a plain scalar (reserved char).
-  test.each(["no-english"])(
+  test.each(["gpt-image", "no-english"])(
     "%s description is quoted and still leads with the command backtick",
     (name) => {
       const fm = frontmatter(join(pluginRoot, "skills", name, "SKILL.md"));

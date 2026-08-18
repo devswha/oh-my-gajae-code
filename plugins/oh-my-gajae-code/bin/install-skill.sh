@@ -42,9 +42,36 @@ done
 PLUGIN_ROOT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 
 # ── EXPECTED manifest (the single source of truth for a complete install) ────────────
-EXPECTED_SKILLS=(no-english extragoal insane-review)
-EXPECTED_COMMANDS=(omg setup no-english insane-review)
+EXPECTED_SKILLS=(no-english extragoal insane-review insane-search gpt-image)
+EXPECTED_COMMANDS=(omg setup no-english insane-review gpt-image)
 EXPECTED_RUNTIMES=()
+INSANE_SEARCH_ASSETS=(
+  bin/insane_search.py
+  skills/insane-search/engine/__init__.py
+  skills/insane-search/engine/__main__.py
+  skills/insane-search/engine/content_safety.py
+  skills/insane-search/engine/executor.py
+  skills/insane-search/engine/fetch_chain.py
+  skills/insane-search/engine/learning.py
+  skills/insane-search/engine/observations_log.py
+  skills/insane-search/engine/phase0.py
+  skills/insane-search/engine/safety.py
+  skills/insane-search/engine/transport.py
+  skills/insane-search/engine/url_transforms.py
+  skills/insane-search/engine/validators.py
+  skills/insane-search/engine/waf_detector.py
+  skills/insane-search/engine/waf_profiles.yaml
+  skills/insane-search/references/upstream.md
+  skills/insane-search/references/upstream-LICENSE
+)
+GPT_IMAGE_ASSETS=(
+  bin/gpt_image_web.py
+  bin/cdp_lock.py
+)
+INSANE_REVIEW_ASSETS=(
+  bin/pack_and_ask.py
+  bin/cdp_lock.py
+)
 # Upgrades sweep only native files and dedicated runtime state owned by capabilities
 # retired from this suite.
 REMOVED_SKILLS=(gate-briefing korean-first workflow-eta time-left codex-deepwork codex-app-launch codex-app-cdp codex-cli-ask lazycodex lazycodex-gjc tower worktree gajae-app multivendor-presets preset-pack release-gate easy-answer plain-layer branch-flow gjc-bugwatch session-observer adaptive-response deep-onboarding multi-harness-research ouroboros)
@@ -541,6 +568,25 @@ MISSING=()
 
 install_skill() { # $1=name $2=scope
   local src dir
+  if [ "$1" = "insane-review" ]; then
+    local asset
+    for asset in "${INSANE_REVIEW_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  elif [ "$1" = "insane-search" ]; then
+    local asset
+    for asset in "${INSANE_SEARCH_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  elif [ "$1" = "gpt-image" ]; then
+    local asset
+    for asset in "${GPT_IMAGE_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  fi
   src="$PLUGIN_ROOT/skills/$1/SKILL.md"
   [ -f "$src" ] || { MISSING+=("skills/$1/SKILL.md"); return 0; }
   dir="$(skills_dir "$2")/$1"; mkdir -p "$dir"; cp -f "$src" "$dir/SKILL.md"
@@ -583,8 +629,12 @@ report_missing() {
 
 preflight_all() {  # verify ALL expected files exist BEFORE copying anything (never a partial install)
   MISSING=()
+  local asset
   for s in "${EXPECTED_SKILLS[@]}";     do [ -f "$PLUGIN_ROOT/skills/$s/SKILL.md" ]  || MISSING+=("skills/$s/SKILL.md"); done
   for c in "${EXPECTED_COMMANDS[@]}";   do [ -f "$PLUGIN_ROOT/templates/$c.md" ]      || MISSING+=("templates/$c.md"); done
+  for asset in "${INSANE_SEARCH_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
+  for asset in "${GPT_IMAGE_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
+  for asset in "${INSANE_REVIEW_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
   report_missing
 }
 

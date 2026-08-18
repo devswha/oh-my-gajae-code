@@ -83,8 +83,8 @@ describe("removed capability manifests", () => {
     const expectedRuntimes = parseManifest("EXPECTED_RUNTIMES");
     const removedSkills = parseManifest("REMOVED_SKILLS");
     const removedCommands = parseManifest("REMOVED_COMMANDS");
-    expect(expectedSkills).toHaveLength(3);
-    expect(expectedCommands).toHaveLength(4);
+    expect(expectedSkills).toHaveLength(5);
+    expect(expectedCommands).toHaveLength(5);
     expect(expectedSkills).not.toContain("gajae-app");
     expect(expectedCommands).not.toContain("gajae-app");
 
@@ -92,12 +92,15 @@ describe("removed capability manifests", () => {
       "no-english",
       "extragoal",
       "insane-review",
+      "insane-search",
+      "gpt-image",
     ]);
     expect(expectedCommands).toEqual([
       "omg",
       "setup",
       "no-english",
       "insane-review",
+      "gpt-image",
     ]);
     expect(expectedRuntimes).toEqual([]);
     for (const skill of retiredSkills) expect(removedSkills).toContain(skill);
