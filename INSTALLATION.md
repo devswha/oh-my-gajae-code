@@ -15,7 +15,7 @@ Do exactly the following in a terminal. Do not improvise other steps.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/install.sh | bash
 ```
-One install brings the whole suite (3 skills + 4 commands: `/omg` + 3 `/omg:*`). There are no separate/optional plugins to add.
+One install brings the whole suite (5 skills + 5 commands: `/omg` + 4 `/omg:*`). There are no separate/optional plugins to add.
 
 ## Manual path (equivalent, if curl|bash is disallowed)
 ```sh
@@ -40,10 +40,10 @@ The self-hosted web UI now lives in [`devswha/claudecodeui`'s canonical SELF-HOS
 ```sh
 gjc plugin list  # must list oh-my-gajae-code@oh-my-gajae-code
 root="$HOME/.gjc/agent"
-for skill in no-english extragoal insane-review; do
+for skill in no-english extragoal insane-review insane-search gpt-image; do
   test -f "$root/skills/$skill/SKILL.md" || exit 1
 done
-for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md; do
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:gpt-image.md; do
   test -f "$root/commands/$command" || exit 1
 done
 for skill in workflow-eta easy-answer plain-layer branch-flow worktree gjc-bugwatch multivendor-presets preset-pack release-gate session-observer time-left lazycodex-gjc adaptive-response deep-onboarding multi-harness-research ouroboros; do
@@ -60,7 +60,7 @@ test "$(stat -c %a "$root/runtimes/oh-my-gajae-code/root" 2>/dev/null || stat -f
 Tell the human: open a **new** gjc session (or `/move .`) so the command palette rebuilds, then run `/omg` for the catalog and `/omg:setup` for optional prerequisite checks. Commands are `/omg:<name>`.
 
 ## Safety
-Idempotent — re-running re-copies the 3 skills and 4 commands, removes explicitly retired suite-owned native surfaces, the retired private multi-harness runtime, and well-formed owned `gate-always` marker blocks after backup. It preserves marker-external bytes, malformed markers, unrelated user state, multi-harness research artifacts, external and user authentication/configuration, credentials, and models. `no-english` loads only through session-local `/omg:no-english`; `insane-review` needs ChatGPT+Chromium.
+Idempotent — re-running re-copies the 5 skills and 5 commands, removes explicitly retired suite-owned native surfaces, the retired private multi-harness runtime, and well-formed owned `gate-always` marker blocks after backup. It preserves marker-external bytes, malformed markers, unrelated user state, multi-harness research artifacts, external and user authentication/configuration, credentials, and models. `no-english` loads only through session-local `/omg:no-english`; `insane-review` needs ChatGPT+Chromium. `insane-search` reads public pages only, checks its Python dependencies without installing them, and does not bypass authentication, CAPTCHAs, paywalls, or its pinned transport with a browser fallback. `gpt-image` loads only through `/omg:gpt-image`, requires POSIX deadline enforcement and the dedicated logged-in ChatGPT CDP profile, and cannot run concurrently with `insane-review`.
 
 ### Auto-update (opt-in)
 Auto-update is OFF by default; the installer never schedules it. To opt in, run `bin/omg-autoupdate.sh enable` (systemd `--user` timer, cron fallback; `--interval <OnCalendar>`, `--local <checkout>` for offline). Each run re-executes the trusted `install.sh` under a single-flight lock, never as root, logging to `${XDG_STATE_HOME:-~/.local/state}/oh-my-gajae-code/autoupdate.log`. `bin/omg-autoupdate.sh disable` removes it, and `install-skill.sh uninstall … user` disables it too.

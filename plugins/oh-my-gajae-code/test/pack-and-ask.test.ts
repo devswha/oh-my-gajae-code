@@ -82,7 +82,7 @@ describe("pack_and_ask security and advanced-menu contracts", () => {
   test("keeps the browser profile private and CDP localhost-bound", () => {
     const source = read(engine);
     expect(source).toContain('"--remote-debugging-address=127.0.0.1"');
-    expect(source).toContain('os.chmod(BROWSER_PROFILE_DIR, 0o700)');
+    expect(source).toContain('os.chmod(current, 0o700)');
     expect(source).toContain('if os.name != "nt":');
     expect(source).toContain('popen_kwargs["start_new_session"] = True');
   });
@@ -96,6 +96,7 @@ spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(e
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BROWSER_PROFILE_DIR = pathlib.Path(tempfile.mkdtemp()) / "profile"
+module.BROWSER_PROFILE_INPUT = module.BROWSER_PROFILE_DIR
 module.os.chmod = lambda *_: (_ for _ in ()).throw(PermissionError("denied"))
 called = []
 module.subprocess.Popen = lambda *_args, **_kwargs: called.append(True)
@@ -117,7 +118,9 @@ spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(e
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BROWSER_PROFILE_DIR = pathlib.Path(tempfile.mkdtemp())
+module.os.chmod(module.BROWSER_PROFILE_DIR, 0o700)
 (module.BROWSER_PROFILE_DIR / "DevToolsActivePort").write_text("9222\\n/devtools/browser/owned\\n")
+module.os.chmod(module.BROWSER_PROFILE_DIR / "DevToolsActivePort", 0o600)
 module.urllib.request.urlopen = lambda *_args, **_kwargs: io.BytesIO(json.dumps({
     "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/owned"
 }).encode())

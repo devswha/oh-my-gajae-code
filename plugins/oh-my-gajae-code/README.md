@@ -1,7 +1,7 @@
 # oh-my-gajae-code (plugin)
 
-**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 3개 + 커맨드 4개
-(`/omg` + `/omg:*` 3개)가 전부 들어온다. `insane-review`는 ChatGPT+크로미움이 필요하다.
+**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 5개 + 커맨드 5개
+(`/omg` + `/omg:*` 4개)가 전부 들어온다. `insane-review`와 `gpt-image`는 ChatGPT+크로미움이 필요하다.
 ## v0.28.0 identity cutover
 
 `oh-my-gajae-code` is the canonical repository, marketplace/plugin identity, source `./plugins/oh-my-gajae-code`, and local checkout name. `/omg:*` commands remain unchanged; the migration contract is below.
@@ -21,14 +21,20 @@ bash oh-my-gajae-code/install.sh
 플러그인 marketplace 추가·설치·업데이트·제거는 **터미널의 `gjc plugin …` shell CLI만** 쓴다.
 gjc 세션의 `/plugin …`은 slash command가 아니라 채팅 텍스트다.
 
-## 들어있는 것 (스킬 3 · 커맨드 4)
+## 들어있는 것 (스킬 5 · 커맨드 5)
 
 ### 스킬
-`no-english` · `extragoal` · `insane-review`
+`no-english` · `extragoal` · `insane-review` · `insane-search` · `gpt-image`
 
 `no-english`는 자연어로 자동 활성화되지 않고 `/omg:no-english`에서만 명시적으로 불러온다.
 `no-english`는 일반 한국어 설명만 다듬으며 `ultragoal`, `ralplan`, `deep-interview`, `team` 같은
 GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한글로 음역하지 않는다.
+
+`insane-search`는 일반 `read` 또는 웹 접근이 402·403·WAF·challenge·불완전한 SPA로 막혔을 때와 알려진 공개 플랫폼 route에서만 자동 활성화한다. 일반 검색과 이미 읽을 수 있는 페이지에는 사용하지 않는다. 공식 공개 route를 우선하고, 그 밖의 공개 URL은 SSRF-pinned TLS grid로 읽는다. API 키·로그인은 필요 없으며 CAPTCHA·paywall·인증 우회는 하지 않는다. 의존성은 확인만 하고 자동 설치하지 않으며, 가져온 본문은 신뢰하지 않는 외부 데이터다.
+
+핵심 의존성은 Python 3, `curl_cffi>=0.15`, `bs4`, `PyYAML`, `markdownify`이고, YouTube 등 미디어 경로에는 선택적으로 `yt-dlp`가 필요하다.
+
+`gpt-image`는 `/omg:gpt-image`로만 명시적으로 실행한다. 사용자의 로그인된 ChatGPT 구독과 전용 CDP 프로필로 ChatGPT Images 웹 생성만 수행하며, POSIX 환경, Playwright와 Chrome/Chromium CDP가 필요하다. 자동 로그인과 API·백엔드 fallback은 없다. 원본 **Save/Download** 동작으로만 PNG를 저장하고, PNG와 provenance는 프로젝트 `.gpt-image/` 아래 mode `0600`이다. `insane-review`와 동시 실행하지 않는다.
 
 ### 커맨드
 
@@ -38,6 +44,7 @@ GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한�
 | `/omg:setup` | 설치 표면과 전제조건 확인 (읽기 전용·멱등) | — |
 | `/omg:no-english [on\|off\|status]` | 현재 세션의 한국어 우선 표현 명시 토글 | — |
 | `/omg:insane-review` | GPT-5.6 Sol Pro 웹 코드 리뷰 (API 비용 0) | ChatGPT 구독 + 크로미움 로그인 |
+| `/omg:gpt-image` | ChatGPT Images 웹 생성 | POSIX + ChatGPT 구독 + Playwright + 전용 Chrome/Chromium CDP 로그인 |
 
 > 전제가 붙은 커맨드는 필요한 도구가 없으면 실행 시 안내하고 멈춘다.
 

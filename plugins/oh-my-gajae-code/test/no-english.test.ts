@@ -81,7 +81,7 @@ describe("no-english skill contract", () => {
   test("is part of the exact native skill manifest", () => {
     const installer = read(installerPath);
     expect(installer).toContain(
-      "EXPECTED_SKILLS=(no-english extragoal insane-review)",
+      "EXPECTED_SKILLS=(no-english extragoal insane-review insane-search gpt-image)",
     );
     expect(installer).toContain("REMOVED_SKILLS=(gate-briefing korean-first workflow-eta ");
     expect(installer).toContain("multi-harness-research ouroboros)");
