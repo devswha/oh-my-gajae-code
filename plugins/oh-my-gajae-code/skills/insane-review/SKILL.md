@@ -9,7 +9,7 @@ description: GPT-5.6 Sol Pro(웹 전용·API 없음)를 gjc(Gajae Code) 안에�
 
 핵심 가치는 "통째 패킹"이 아니라 **"의도 파악 → 관련 타겟만 정밀 선별 → 그것만 패킹"** 이다. 이 선별을 gjc(너)가 수행하는 것이 이 도구의 차별점이다.
 
-> **엔진은 원본 그대로.** 실제 패킹·CDP 구동·모델검증·턴판정·회수는 번들된 `bin/pack_and_ask.py`(원본 insane-review 엔진, Playwright 기반)가 수행한다. 성능·fail-closed 보장을 유지하기 위해 로직을 재구현하지 않고 이 검증된 엔진을 그대로 호출한다. gjc의 `browser` 도구로 이 흐름을 흉내내지 마라 — 엔진이 더 견고하다.
+> **엔진은 hardened local engine이다.** 실제 패킹·CDP 구동·모델검증·턴판정·회수는 감사된 로컬 DOM·보안 패치를 포함한 `bin/pack_and_ask.py`(Playwright 기반)가 수행한다. 로직을 gjc의 `browser` 도구로 재구현하지 마라 — 이 엔진의 검증 경계를 유지한다.
 
 ## 엔진 경로 해석 (`$IR`) — 매 실행 전 1회
 `${CLAUDE_PLUGIN_ROOT}` 같은 치환은 gjc 커맨드/스킬 본문에서 동작하지 않는다. 네이티브 설치가 scope마다 기록한 정확한 suite root binding(`root`, mode `0600`)만 사용한다. 새 프로젝트 binding(`$PWD/.gjc/runtimes/oh-my-gajae-code/root`)과 새 user binding(`$HOME/.gjc/agent/runtimes/oh-my-gajae-code/root`)을 순서대로 읽는다. 둘 다 없을 때만 **읽기 전용·기간 한정 compatibility fallback**인 기존 `oh-my-gjc` 프로젝트/user binding을 같은 순서로 읽고, 그마저 없을 때만 이 checkout의 정확한 `plugins/oh-my-gajae-code/` asset으로 fallback한다. 기존 binding이나 user state는 쓰거나 지우지 않는다:
@@ -83,7 +83,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 - **deps**(`playwright`·`pyperclip`): 없으면 "지금 자동 설치" 선택 → `--check-env --install`. (`npx`/repomix는 `npx -y`로 완전 자동.)
 - **browser**: 크로미움 계열 브라우저가 디버그포트(9222)에 **전용 프로필**로 떠 있어야 함(주 브라우저와 격리; Chrome 136+는 전용 프로필 없으면 CDP가 안 열림). 없으면 `--check-env`/`--list-browsers`의 `BROWSERS …` 목록으로 브라우저를 고르게 한 뒤 gjc가 `python3 "$IR" --launch-browser "<이름>"`(크로스플랫폼 mac/win/linux·전용 프로필·선택 자동 저장)을 실행. (쿠키는 전용 프로필에 보존 → 로그인 유지.)
 - **login**: 로그인 프로브가 `login=no`면, "방금 연 브라우저에서 chatgpt.com 로그인 + GPT-5.6 Sol Pro 선택" 후 "로그인 완료" 선택 → 재점검. **로그인은 자동 불가 → 반드시 사용자에게 요청**(에러로 끝내지 말 것).
-- **모델 5.6 Sol Pro**: 스크립트 `--model pro`가 자동선택·검증(`--require-model "GPT-5.6"`). 안 되면 사용자가 1회 수동 설정하면 새 채팅이 상속.
+- **모델 5.6 Sol Pro**: 스크립트가 고급 메뉴에서 `모델: GPT-5.6 Sol`과 `추론 강도: Pro`를 선택·검증한다. 기존 radio/list와 2026-08 effort slider를 모두 지원하며, UI가 바뀌어 선택 또는 검증에 실패하면 전송하지 않고 fail-closed로 중단한다.
 
 ## 핵심 절차 (검토/수정/리뷰 요청을 받았을 때)
 
@@ -103,7 +103,7 @@ Malformed, symlinked, non-canonical, multiline, control-character-containing, or
 ```bash
 python3 "$IR" \
   --target <repo_root> --include "<관련 파일 글롭>" \
-  --model pro --require-model "GPT-5.6" \
+  --model pro --require-model "GPT-5.6 Sol" \
   --prompt "<의도를 담은 정확한 질문 — '판정마다 파일/라인/코드조각을 인용하라'를 반드시 포함>"
 ```
 **레포 없이 순수 질문(의견)만:** `--target` 생략 → 프롬프트만 전송.
@@ -113,7 +113,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 
 ### 3.5) 누락 검증 — **빠진 파일 없는지 감사**
 패킹 직후 출력의 **`📦 패킹 포함 N개 파일: ...`** 목록이 **의도한 관련 파일을 전부 담았는지** 확인한다. 빠진 게 있으면 repomix가 떨어뜨린 것 — 원인별 대응:
-- `🔒 secretlint: 의심 파일 N개 제외` → **시크릿 든 파일이 통째 빠짐**(숨은 누락). 그 파일이 리뷰 대상이면 시크릿을 가린 사본을 넣거나 `--no-security-check`(외부 유출 주의).
+- `🔒 secretlint: 의심 파일 N개 제외` → **시크릿 든 파일이 통째 빠짐**(숨은 누락). secretlint는 필수이며 우회하지 않는다. 그 파일이 필요하면 시크릿을 제거·가린 안전한 사본만 별도 대상으로 검토한다.
 - 기본 ignore/`.gitignore`가 떨어뜨림 → `--no-default-patterns`/`--no-gitignore`.
 - 서브모듈 파일이 빠짐(부모서 패킹) → 서브모듈 안에서 `--target`.
 - `⚠️ pack이 큼(truncation)` 경고 → ChatGPT가 잘라먹을 수 있으니 `--include`로 더 좁히거나 여러 번 나눠 보낸다.
@@ -128,10 +128,11 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - **git submodule**: 부모 레포 루트에서 서브모듈 파일은 repomix가 제외한다. 서브모듈 안에서 실행하거나 `--target <submodule>` 또는 `--no-gitignore --no-default-patterns`.
 - **압축은 코드 파일만** 줄인다(마크다운/문서 위주 폴더엔 무효).
 - **정밀 리뷰엔 `--force-answer-after`를 쓰지 마라** — Pro 추론을 중간에 끊어 "다 생각 안 한 채" 답하게 만든다(fail-open과 곱해져 미완성 답을 정답 저장). 완전 추론이 더 정확. 안전장치는 `--max-wait`(기본 20분, env/`--max-wait`로 조절)만. force-answer는 빠른 의견·짧은 질문·council에만.
-- **fail-closed**: 첨부 미확인 / 모델 미검증(`--require-model`) / timeout·빈 응답은 **성공 저장 안 하고 중단·재시도**한다(잘못된 컨텍스트나 미완성 답을 리뷰로 저장하지 않음).
+- **fail-closed**: 첨부 미확인 / 모델 미검증(`--require-model`) / timeout·빈 응답 / 거부 페이지 / 긴 프롬프트 echo는 **성공 저장·출력 없이 중단**한다(잘못된 컨텍스트나 답변 아닌 페이지를 리뷰로 저장하지 않음).
 - 큰 콘텐츠는 **파일 첨부**로 들어간다(붙여넣기 X). 스크립트가 자동 처리.
 - 실패 시 `--retries N`으로 전송/회수를 재시도.
 - 동시에 두 개의 insane-review 잡이 **같은 브라우저**를 몰면 안 된다.
+- 전용 프로필 CDP 브라우저는 CLI 종료 뒤에도 실행 상태를 유지한다. 다음 실행에서 인증 프로필과 쿠키를 재사용하며, 스크립트는 외부 브라우저를 종료하지 않는다.
 
 ## 채팅 정리 — 폴더명 ChatGPT 프로젝트 (기본 on)
 매 실행이 일반 채팅 목록에 쌓이지 않도록, **현재 폴더명(+경로해시)과 같은 이름의 ChatGPT 프로젝트** 안에 채팅을 정리한다. 폴더당 프로젝트 1개로 묶여 일반 목록이 깨끗하게 유지된다.
@@ -140,7 +141,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - 이름 바꾸려면 `--project "<이름>"`, 끄려면 `--no-project`.
 
 ## 주요 플래그
-`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
+`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6 Sol"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
 
 ## agent-council 멤버로 쓰기
 `references/council-setup.md` 참고. `--council` 모드는 프롬프트를 위치인자로 받고 **응답만 stdout**으로 내보내(진행로그는 stderr) council worker가 그대로 캡처한다. Pro를 웹 전용 council 멤버로 등록하면 다른 모델들과 토론에 참여시킬 수 있다.

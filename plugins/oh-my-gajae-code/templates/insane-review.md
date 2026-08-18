@@ -125,7 +125,7 @@ gjc `ask` 도구로 물어보고 → 선택대로 gjc가 실행 → `--ensure-en
    ```bash
    python3 "$IR" \
      --target <repo_or_dir> --include "<관련 파일 글롭 또는 생략=전체>" \
-     --model pro --require-model "GPT-5.6" \
+     --model pro --require-model "GPT-5.6 Sol" \
      --prompt "<의도 담은 질문 — 판정마다 파일:라인·코드조각 인용 강제>"
    ```
    - 응답이 오래 걸려도 되면 그대로(완전추론). 시간을 bound하려면 `--force-answer-after <초>`. 단독 리뷰는 보통 끄고, council은 켜서 cap.
@@ -135,4 +135,4 @@ gjc `ask` 도구로 물어보고 → 선택대로 gjc가 실행 → `--ensure-en
 
 > **채팅 정리(기본 on):** 매 실행은 일반 채팅 목록 대신 **현재 폴더명 ChatGPT 프로젝트** 안에 정리된다(폴더당 1개, 캐시 재사용·자동 생성·실패 시 일반채팅 폴백). 이름은 `--project "<이름>"`, 끄려면 `--no-project`.
 
-> **안전:** 이 커맨드는 로그인된 ChatGPT 웹 세션을 자동화하고, 관련 코드를 외부(ChatGPT)로 전송한다. 시크릿은 repomix secretlint가 기본으로 걸러 제외하며, 첨부/모델 미검증·미완성 응답은 fail-closed로 저장하지 않는다. 웹 UI 자동화는 OpenAI ToS가 보장하지 않으니 **개인 구독 용도로만** 쓴다.
+> **안전:** 이 커맨드는 로그인된 ChatGPT 웹 세션을 자동화하고, 관련 코드를 외부(ChatGPT)로 전송한다. repomix secretlint는 필수이며 우회하지 않는다. 엔진은 기존 radio/list와 2026-08 effort slider에서 정확한 `GPT-5.6 Sol`·`Pro`를 검증하고, 첨부/모델 미검증·미완성 응답·거부 페이지·긴 프롬프트 echo는 fail-closed로 저장·성공 출력하지 않는다. 웹 UI 자동화는 OpenAI ToS가 보장하지 않으니 **개인 구독 용도로만** 쓴다.

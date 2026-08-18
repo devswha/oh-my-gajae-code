@@ -23,6 +23,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -52,7 +53,7 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 # --remote-debugging-port를 정책적으로 무시하므로(쿠키 탈취 방지), 이 별도 user-data-dir이
 # 없으면 디버그 포트가 아예 안 열린다. 모든 OS 공통으로 전용 프로필을 쓴다.
 BROWSER_PROFILE_DIR = Path(os.environ.get(
-    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile")))
+    "INSANE_REVIEW_PROFILE", str(Path.home() / ".insane-review" / "browser-profile"))).expanduser().resolve()
 # 선택한 브라우저를 영속화(재질문 방지) — 우선순위: --browser > env > config 저장값 > 첫 감지.
 CONFIG_PATH = Path(os.environ.get(
     "INSANE_REVIEW_CONFIG", str(Path.home() / ".insane-review" / "config.json")))
@@ -113,6 +114,15 @@ STATUS_INTERVAL = 15
 FORCE_MAX_TRIES = 6    # force-answer 클릭 재시도 상한
 # 첨부 실패 시 pack을 프롬프트에 인라인으로 붙여 보내는 폴백의 크기 상한(초과 시 자르지 않고 중단).
 PASTE_FALLBACK_MAX_CHARS = int(os.environ.get("INSANE_REVIEW_PASTE_MAX", "50000"))
+REFUSAL_MARKERS = (
+    "이 콘텐츠는 표시할 수 없습니다",
+    "Trusted Access",
+    "사이버보안 관련 요청은",
+    "I can't help with that",
+    "I'm unable to help with that",
+)
+PROMPT_ECHO_CHARS = 200
+MIN_ECHO_CHARS = 120
 
 # 출력은 '실행한 현재 프로젝트'의 .insane-review/ 에 저장(플러그인 내부 X — kkirikkiri의 .kkirikkiri 패턴).
 # env INSANE_REVIEW_OUT 또는 --out-dir로 오버라이드.
@@ -400,45 +410,78 @@ def resolve_browser(name_or_path: str | None) -> tuple[str, str] | None:
     return bs[0] if bs else None
 
 
-def _kill_profile_browsers() -> None:
-    """전용 프로필을 점유 중인 브라우저 프로세스를 정리(크로스플랫폼 best-effort).
-    전용 프로필이라 종료해도 로그인 쿠키는 디스크에 보존된다 — 스테일 인스턴스가
-    새 런치를 흡수해(같은 user-data-dir 싱글톤) 디버그 포트가 안 열리는 교착을 푼다."""
-    target = str(BROWSER_PROFILE_DIR)
+def _prepare_browser_profile() -> bool:
+    """Create and verify the credential-bearing dedicated profile."""
     try:
-        if host_os() == "win":
-            ps = ("Get-CimInstance Win32_Process | "
-                  f"Where-Object {{ $_.CommandLine -like '*{target}*' }} | "
-                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
-                  "-ErrorAction SilentlyContinue }")
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True, timeout=15)
-        else:
-            subprocess.run(["pkill", "-f", target], capture_output=True, timeout=10)
-    except Exception:
-        pass
+        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        if not BROWSER_PROFILE_DIR.is_dir():
+            raise OSError("profile path is not a directory")
+        if os.name != "nt":
+            os.chmod(BROWSER_PROFILE_DIR, 0o700)
+            profile_stat = BROWSER_PROFILE_DIR.stat()
+            if stat.S_IMODE(profile_stat.st_mode) != 0o700:
+                raise OSError("profile permissions are not 0700")
+            if hasattr(os, "geteuid") and profile_stat.st_uid != os.geteuid():
+                raise OSError("profile is not owned by the current user")
+        return True
+    except OSError as exc:
+        print(f"  ❌ 전용 브라우저 프로필 보안 설정 실패: {str(exc)[:100]}")
+        return False
+
+
+def _cdp_matches_dedicated_profile() -> bool:
+    """Bind the live CDP endpoint to Chrome's private profile receipt."""
+    receipt = BROWSER_PROFILE_DIR / "DevToolsActivePort"
+    try:
+        receipt_stat = receipt.lstat()
+        if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
+            return False
+        if receipt_stat.st_size > 4096:
+            return False
+        lines = receipt.read_text(encoding="utf-8").splitlines()
+        if len(lines) < 2 or lines[0].strip() != str(CDP_PORT):
+            return False
+        expected_path = lines[1].strip()
+        if not expected_path.startswith("/devtools/browser/"):
+            return False
+        info = json.load(urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=3))
+        from urllib.parse import urlparse
+        actual = urlparse(info.get("webSocketDebuggerUrl", ""))
+        return actual.hostname in {"127.0.0.1", "localhost"} and actual.port == CDP_PORT and actual.path == expected_path
+    except (OSError, UnicodeError, ValueError, KeyError):
+        return False
 
 
 def launch_browser_exe(path: str) -> bool:
-    """전용 프로필 + 디버그 포트로 크로미움 직접 실행(크로스플랫폼) 후 CDP가 뜰 때까지 대기.
-    전용 프로필에 스테일 인스턴스가 떠 있어 새 런치가 포트를 못 여는 경우(같은 user-data-dir
-    싱글톤 교착)를 감지해 그 프로세스를 정리하고 1회 재시도한다."""
-    try:
-        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    """전용 프로필 + 디버그 포트로 크로미움 직접 실행한 뒤 소유 프로필을 검증한다."""
+    if not _prepare_browser_profile():
+        return False
     cmd = [path, f"--remote-debugging-port={CDP_PORT}",
+           "--remote-debugging-address=127.0.0.1",
            f"--user-data-dir={BROWSER_PROFILE_DIR}",
            "--no-first-run", "--no-default-browser-check"]
 
     def _spawn_and_wait(secs: int) -> bool:
         try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # The CLI is short-lived, but the dedicated browser must survive it so
+            # its authenticated profile and cookies remain available to the next run.
+            popen_kwargs = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
+            subprocess.Popen(cmd, **popen_kwargs)
         except OSError as exc:
             print(f"  ❌ 실행 실패: {str(exc)[:80]}")
             return False
         for i in range(secs):
-            if is_port_open() and cdp_browser_ok():
+            if is_port_open() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
                 print(f"  ✓ 시작 완료 ({i + 1}s)")
                 time.sleep(2)
                 return True
@@ -448,24 +491,17 @@ def launch_browser_exe(path: str) -> bool:
     print(f"  브라우저 시작: {Path(path).name} (CDP {CDP_PORT}, 전용 프로필)")
     if _spawn_and_wait(15):
         return True
-    # 포트 미개방 = 전용 프로필에 떠 있던 스테일 인스턴스가 런치를 흡수했을 가능성.
-    # 그 프로세스를 정리(로그인 보존)하고 싱글톤 락이 풀리길 기다린 뒤 1회 재시도.
-    print("  ⚠️  디버그 포트 미개방 — 전용 프로필 스테일 인스턴스 정리 후 재시도")
-    _kill_profile_browsers()
-    time.sleep(3)
-    if _spawn_and_wait(20):
-        return True
-    print("  ❌ 브라우저 시작 타임아웃 (전용 프로필 정리 후에도 실패)")
+    print("  ❌ 전용 프로필 CDP 확인 실패 — 기존 브라우저를 직접 종료한 뒤 다시 시도하세요")
     return False
 
 
 def ensure_browser(browser_arg: str | None) -> bool:
     """이미 CDP가 떠 있으면 그걸 검증·사용, 아니면 지정/감지된 브라우저를 전용 프로필로 띄운다."""
     if is_port_open():
-        if cdp_browser_ok():
+        if _prepare_browser_profile() and cdp_browser_ok() and _cdp_matches_dedicated_profile():
             print(f"  ✓ CDP 브라우저 확인 (port {CDP_PORT})")
             return True
-        print(f"  ❌ port {CDP_PORT}에 CDP 브라우저가 아닌 다른 프로세스가 떠 있음")
+        print(f"  ❌ port {CDP_PORT}의 브라우저가 전용 프로필과 일치하지 않음")
         return False
     resolved = resolve_browser(browser_arg)
     if not resolved:
@@ -624,6 +660,24 @@ def normalize(text: str | None) -> str:
     return re.sub(r"\s+", " ", text).strip() if text else ""
 
 
+def rejection_reason(response: str, prompt: str) -> str | None:
+    """Return why a recovered page is not a usable answer, if applicable."""
+    normalised = normalize(response)
+    if not normalised:
+        return "응답이 비어 있음"
+    for marker in REFUSAL_MARKERS:
+        if normalised.startswith(marker) and len(normalised) <= 1000:
+            return f"모델 거부 응답 감지: {marker}"
+    prompt_normalised = normalize(prompt)
+    prompt_head = prompt_normalised[:PROMPT_ECHO_CHARS]
+    echo_extra = len(normalised) - len(prompt_normalised)
+    if (len(prompt_head) >= MIN_ECHO_CHARS
+            and normalised.startswith(prompt_normalised)
+            and 0 <= echo_extra <= 40):
+        return "프롬프트 앞부분이 응답에 그대로 반복됨(답변 아님)"
+    return None
+
+
 def last_assistant_node(page):
     nodes = page.query_selector_all(ASSISTANT_MSG_SELECTOR)
     return nodes[-1] if nodes else None
@@ -699,6 +753,51 @@ def read_model_pills(page) -> list[str]:
     return out
 
 
+def _drive_effort_slider(page, slider, want_l: str) -> str | None:
+    """Select an effort level from the August 2026 slider and verify via the pill."""
+    try:
+        slider.click(force=True)
+        time.sleep(0.4)
+        for _ in range(8):
+            if slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemin"):
+                break
+            page.keyboard.press("ArrowLeft")
+            time.sleep(0.35)
+        for _ in range(9):
+            label = _exact_effort_pill(page, want_l)
+            at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
+            if label and (want_l != "pro" or at_maximum):
+                return label
+            if at_maximum:
+                return None
+            page.keyboard.press("ArrowRight")
+            time.sleep(0.5)
+    except Exception:
+        return None
+    return None
+
+
+def _exact_effort_pill(page, want_l: str) -> str | None:
+    """Return an exact effort label, never a model or unrelated Pro-containing pill."""
+    for pill in read_model_pills(page):
+        lines = [line.strip() for line in pill.splitlines() if line.strip()]
+        for line in lines:
+            if line.casefold() == want_l.casefold():
+                return line[:40]
+    return None
+
+
+def _slider_effort_verified(page, want_l: str) -> bool:
+    try:
+        slider = page.query_selector('[role="slider"]')
+        if slider is None:
+            return False
+        at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
+        return _exact_effort_pill(page, want_l) is not None and (want_l != "pro" or at_maximum)
+    except Exception:
+        return False
+
+
 def _open_switcher(page):
     for sel in MODEL_SWITCHER_SELECTORS:
         try:
@@ -712,6 +811,129 @@ def _open_switcher(page):
     return False
 
 
+def _menu_text(node) -> str:
+    """Return accessible label plus visible text for localized menu rows."""
+    try:
+        label = node.get_attribute("aria-label") or ""
+        text = node.inner_text() or ""
+        return "\n".join(part.strip() for part in (label, text) if part.strip())
+    except Exception:
+        return ""
+
+
+def _switcher_menu_open(page) -> bool:
+    try:
+        return bool(page.query_selector('[role="menu"]'))
+    except Exception:
+        return False
+
+
+def _ensure_switcher_menu(page) -> bool:
+    return _switcher_menu_open(page) or _open_switcher(page)
+
+
+def _expand_advanced_options(page) -> bool:
+    """Open the localized advanced view when the current ChatGPT UX hides it."""
+    try:
+        for row in page.query_selector_all('[role="menuitem"]'):
+            label = _menu_text(row).lower()
+            expanded = row.get_attribute("aria-expanded")
+            if "고급" in label or "advanced" in label or "간략" in label:
+                if expanded == "true":
+                    return True
+                row.click()
+                time.sleep(0.8)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _find_menu_row(page, labels: tuple[str, ...]):
+    for row in page.query_selector_all('[role="menuitem"]'):
+        text = _menu_text(row).lower()
+        if any(label.lower() in text for label in labels):
+            return row
+    return None
+
+
+def _click_menu_radio(page, target: str) -> str | None:
+    target_l = target.lower()
+    try:
+        candidates = page.query_selector_all('[role="menuitemradio"], [role="option"]')
+        for exact in (True, False):
+            for item in candidates:
+                text = _menu_text(item).strip()
+                lines = [line.strip() for line in text.splitlines() if line.strip()]
+                candidate = lines[-1] if lines else text
+                matched = candidate.lower() == target_l if exact else target_l in text.lower()
+                if matched:
+                    item.click()
+                    time.sleep(0.8)
+                    return candidate[:40]
+    except Exception:
+        pass
+    return None
+
+
+def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
+    """Select Model and Reasoning effort from the current Advanced menu UX."""
+    if not _expand_advanced_options(page):
+        return None
+    model_row = _find_menu_row(page, ("모델", "model"))
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    if not model_row or not effort_row:
+        return None
+    try:
+        model_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_model = _click_menu_radio(page, require_model)
+    if selected_model is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    if not effort_row:
+        return False, None
+    try:
+        effort_row.click()
+        time.sleep(0.8)
+    except Exception:
+        return False, None
+    selected_effort = _click_menu_radio(page, want)
+    slider_used = False
+    if selected_effort is None:
+        try:
+            slider = page.query_selector('[role="slider"]')
+        except Exception:
+            slider = None
+        if slider is not None:
+            selected_effort = _drive_effort_slider(page, slider, want.lower())
+            slider_used = selected_effort is not None
+    if selected_effort is None:
+        return False, None
+    if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
+        return False, None
+    model_row = _find_menu_row(page, ("모델", "model"))
+    effort_row = _find_menu_row(page, ("추론", "reasoning"))
+    model_text = _menu_text(model_row) if model_row else ""
+    effort_text = _menu_text(effort_row) if effort_row else ""
+    verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
+    verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
+    effort_ok = (_slider_effort_verified(page, want.strip().casefold())
+                 if slider_used else verified_effort.casefold() == want.strip().casefold())
+    verified = verified_model.casefold() == require_model.strip().casefold() and effort_ok
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    result_name = f"{verified_model} ({verified_effort})"
+    print(f"  {'✓' if verified else '❌'} 최종 모델 검증: model={verified_model} (기대:{require_model}), effort={verified_effort} (기대:{want}) -> 결과={'OK' if verified else '실패'}")
+    return verified, result_name if verified else None
+
+
 def read_menu_state(page) -> dict:
     """열린 메뉴에서 모델명(menuitem 중 checked/selected) + 체크된 추론단계(menuitemradio aria-checked)를 읽는다."""
     state = {"model": None, "model_source": None, "models": [], "effort_checked": None, "items": []}
@@ -719,7 +941,7 @@ def read_menu_state(page) -> dict:
         # 한 번 순회하며 (1) 모델같은 항목 전부 수집, (2) aria-checked/selected된 활성 모델 검출
         for it in page.query_selector_all('[role="menuitem"], [role="menuitemradio"], [role="option"]'):
             is_checked = it.get_attribute("aria-checked") == "true" or it.get_attribute("aria-selected") == "true"
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             if t and re.search(r"GPT|gpt|o\d|Claude|Gemini", t):
                 name = t.splitlines()[0][:40]
                 if name not in state["models"]:
@@ -735,7 +957,7 @@ def read_menu_state(page) -> dict:
         pass
     try:
         for it in page.query_selector_all('[role="menuitemradio"]'):
-            t = (it.inner_text() or "").strip()
+            t = _menu_text(it)
             state["items"].append(t)
             if it.get_attribute("aria-checked") == "true":
                 state["effort_checked"] = t
@@ -752,6 +974,11 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
     if not _open_switcher(page):
         print("  ⚠️  모델 스위처를 못 찾음 → 기본 모델로 진행")
         return False, None
+
+    if require_model:
+        advanced_result = _select_advanced_model_and_effort(page, want, require_model)
+        if advanced_result is not None:
+            return advanced_result
 
     before = read_menu_state(page)
     if before["model"]:
@@ -776,27 +1003,51 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
 
     # 추론단계 클릭 대상 탐색
     clicked = None
-    cands = []
-    for sel in EFFORT_ITEM_SELECTORS:
+    slider_used = False
+    if not before["items"]:
         try:
-            cands.extend(page.query_selector_all(sel))
+            slider = page.query_selector('[role="slider"]')
         except Exception:
-            continue
-
-    for exact in (True, False):
-        for it in cands:
+            slider = None
+        if slider is not None:
+            label = _drive_effort_slider(page, slider, want_l)
+            if not label:
+                print(f"  ❌ 추론단계 슬라이더에서 '{want}' 단계를 못 찾음 → 중단(전송 안 함)")
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return False, None
+            print(f"  추론단계 슬라이더: {label!r} 선택")
+            clicked = f"slider:{label}"
+            slider_used = True
             try:
-                t = (it.inner_text() or "").strip()
-                low = t.lower()
-                if (exact and low == want_l) or (not exact and want_l in low):
-                    it.click()
-                    clicked = t.splitlines()[0][:40]
-                    time.sleep(1.5)  # 클릭 후 드롭다운이 닫히는 시간 대기
-                    break
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            time.sleep(0.5)
+    cands = []
+    if not clicked:
+        for sel in EFFORT_ITEM_SELECTORS:
+            try:
+                cands.extend(page.query_selector_all(sel))
             except Exception:
                 continue
-        if clicked:
-            break
+
+        for exact in (True, False):
+            for it in cands:
+                try:
+                    t = (it.inner_text() or "").strip()
+                    low = t.lower()
+                    if (exact and low == want_l) or (not exact and want_l in low):
+                        it.click()
+                        clicked = t.splitlines()[0][:40]
+                        time.sleep(1.5)  # 클릭 후 드롭다운이 닫히는 시간 대기
+                        break
+                except Exception:
+                    continue
+            if clicked:
+                break
 
     if not clicked:
         print(f"  ⚠️  '{want}' 추론단계 항목 못 찾음 → 기본값")
@@ -820,7 +1071,7 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
 
     model_verified = True
     if require_model:
-        name_ok = after["model"] is not None and require_model.lower() in after["model"].lower()
+        name_ok = after["model"] is not None and after["model"].strip().casefold() == require_model.strip().casefold()
         # 폴백(활성표시 없음)으로 잡은 모델명은 메뉴에 모델이 여러 개일 때 신뢰 불가 → fail-closed.
         # 활성표시(checked)거나 메뉴에 모델이 하나뿐이면 폴백이라도 안전(= 활성 모델).
         src_ok = (after.get("model_source") == "checked") or (len(after.get("models") or []) <= 1)
@@ -828,15 +1079,48 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
         if name_ok and not src_ok:
             print(f"  ❌ 활성 모델 확정 불가(체크표시 없음 + 메뉴에 모델 {len(after['models'])}개: {after['models']}) → fail-closed")
 
-    effort_verified = after["effort_checked"] is not None and want_l in after["effort_checked"].lower()
+    effort_verified = (_slider_effort_verified(page, want_l)
+                       if slider_used else
+                       after["effort_checked"] is not None and want_l in after["effort_checked"].lower())
     verified = model_verified and effort_verified
 
     verified_model = after["model"] or "Unknown Model"
-    verified_effort = after["effort_checked"] or "Default"
+    verified_effort = (_exact_effort_pill(page, want_l)
+                       if slider_used else after["effort_checked"]) or "Default"
     verified_model_name = f"{verified_model} ({verified_effort})"
 
     print(f"  {'✓' if verified else '⚠️'} 최종 모델 검증: model={after['model']} (기대:{require_model}), effort={after['effort_checked']} (기대:{want}) -> 결과={'OK' if verified else '실패'}")
     return verified, verified_model_name
+
+
+def write_response_artifact(path: Path, body: str) -> None:
+    """Create a new private response without following or replacing an artifact."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    identity = os.fstat(fd)
+    try:
+        try:
+            os.fchmod(fd, 0o600)
+        except AttributeError:
+            os.chmod(path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            stream.write(body)
+    except Exception:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            current = os.stat(path, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                os.unlink(path)
+        except OSError:
+            pass
+        raise
 
 
 # ---- 첨부 / 입력 / 전송 ----
@@ -1365,7 +1649,7 @@ def main():
     # 스킵되는 fail-open을 차단(fail-closed). 모델/추론단계를 함께 지정해야 검증이 돈다.
     if args.require_model and not args.model:
         sys.exit('❌ --require-model은 --model과 함께 써야 합니다(모델/추론단계를 선택·검증하는 경로).\n'
-                 '     예: --model pro --require-model "GPT-5.6"')
+                 '     예: --model pro --require-model "GPT-5.6 Sol"')
 
     real_stdout = sys.stdout
     if args.council:
@@ -1562,13 +1846,17 @@ def main():
     if not response:
         sys.exit("❌ 응답 회수 실패 (모든 재시도 소진)")
 
-    # 패킹 파일 시크릿 위생: --delete-pack이면 삭제
+    # 패킹 파일 시크릿 위생은 응답 판정과 무관하게 --delete-pack 계약을 지킨다.
     if pack_path is not None and args.delete_pack:
         try:
             pack_path.unlink()
             print(f"  🔒 패킹 파일 삭제됨(--delete-pack)")
-        except OSError:
-            pass
+        except OSError as exc:
+            sys.exit(f"❌ 패킹 파일 삭제 실패(--delete-pack): {str(exc)[:120]}")
+
+    rejection = rejection_reason(response, prompt)
+    if rejection:
+        sys.exit(f"❌ 회수한 페이지를 답변으로 인정하지 않음(fail-closed): {rejection}")
 
     resp_path = out_dir / f"response_{label}_{run_tag}.md"
     pack_line = (f"- 패킹: `{pack_path.name}`" + (f" (~{tokens:,} tokens)\n" if tokens else "\n")
@@ -1576,9 +1864,10 @@ def main():
     model_line = f"- 모델: `{verified_model_name}`\n" if verified_model_name else ""
     body = (f"# {label} — GPT 응답 (구독 ChatGPT)\n\n" + pack_line + model_line
             + f"- 프롬프트: {prompt[:80]}...\n\n---\n\n{response}\n")
-    tmp = resp_path.with_suffix(".md.tmp")
-    tmp.write_text(body, encoding="utf-8")
-    os.replace(tmp, resp_path)  # 원자적 저장
+    try:
+        write_response_artifact(resp_path, body)
+    except FileExistsError:
+        sys.exit(f"❌ 응답 산출물이 이미 존재함 → 덮어쓰지 않고 중단: {resp_path}")
     print(f"\n[완료] 응답 저장: {resp_path}")
     if args.council:
         real_stdout.write(response + "\n")

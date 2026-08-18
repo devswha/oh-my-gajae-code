@@ -3,7 +3,7 @@
  * Run: bun test plugins/oh-my-gajae-code/test/gajae-app-removal.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { spawnSync } from "child_process";
@@ -11,6 +11,7 @@ import { spawnSync } from "child_process";
 const pluginRoot = join(import.meta.dir, "..");
 const installSh = join(pluginRoot, "bin/install-skill.sh");
 const installer = readFileSync(installSh, "utf8");
+const canonicalTmpDir = realpathSync(tmpdir());
 
 function parseManifest(name: string): string[] {
   const match = installer.match(new RegExp(`^${name}=\\(([^)]*)\\)`, "m"));
@@ -135,7 +136,7 @@ describe("removed capability manifests", () => {
 
 describe("removed capability upgrade cleanup", () => {
   test.each(["user", "project"] as const)("sweeps only native %s entries", (scope) => {
-    const sandbox = mkdtempSync(join(tmpdir(), `omg-gajae-app-${scope}-`));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, `omg-gajae-app-${scope}-`));
     const home = join(sandbox, "home");
     const project = join(sandbox, "project");
     mkdirSync(home, { recursive: true });
@@ -279,7 +280,7 @@ describe("removed capability upgrade cleanup", () => {
     }
   });
   test("rejects symlinked native surface roots before mutation", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-native-symlink-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-native-symlink-"));
     const home = join(sandbox, "home");
     const externalSkills = join(sandbox, "external-skills");
     const skillsRoot = join(home, ".gjc/agent/skills");
@@ -302,7 +303,7 @@ describe("removed capability upgrade cleanup", () => {
     }
   });
   test("validates every native root before creating any missing sibling", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-command-symlink-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-command-symlink-"));
     const home = join(sandbox, "home");
     const externalCommands = join(sandbox, "external-commands");
     const commandsRoot = join(home, ".gjc/agent/commands");
@@ -325,7 +326,7 @@ describe("removed capability upgrade cleanup", () => {
     }
   });
   test("rejects an invalid uninstall scope before mutation", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-invalid-scope-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-invalid-scope-"));
     const home = join(sandbox, "home");
     const skill = join(home, ".gjc/agent/skills/adaptive-response/SKILL.md");
     try {
@@ -343,7 +344,7 @@ describe("removed capability upgrade cleanup", () => {
   });
 
   test("refuses a symlinked user policy file", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-policy-symlink-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-policy-symlink-"));
     const home = join(sandbox, "home");
     const external = join(sandbox, "external-system.md");
     const systemFile = join(home, ".gjc/agent/SYSTEM.md");
@@ -382,7 +383,7 @@ describe("removed capability upgrade cleanup", () => {
     ["replacement content copy", "cp", 3],
     ["atomic rename", "mv", 1],
   ] as const)("preserves policy when %s fails", (_label, command, failAt) => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-policy-io-failure-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-policy-io-failure-"));
     const home = join(sandbox, "home");
     const fakeBin = join(sandbox, "bin");
     const state = join(sandbox, `${command}-count`);
@@ -427,7 +428,7 @@ describe("removed capability upgrade cleanup", () => {
     }
   });
   test("fails marker cleanup closed on malformed ordering", () => {
-    const sandbox = mkdtempSync(join(tmpdir(), "omg-malformed-marker-"));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-malformed-marker-"));
     const home = join(sandbox, "home");
     const systemFile = join(home, ".gjc/agent/SYSTEM.md");
     const malformed = [
@@ -464,7 +465,7 @@ describe("removed capability upgrade cleanup", () => {
 
 describe("retired branchflow marker cleanup", () => {
   function fixture(name: string) {
-    const sandbox = mkdtempSync(join(tmpdir(), `omg-${name}-`));
+    const sandbox = mkdtempSync(join(canonicalTmpDir, `omg-${name}-`));
     const home = join(sandbox, "home");
     const project = join(sandbox, "project");
     mkdirSync(home);
