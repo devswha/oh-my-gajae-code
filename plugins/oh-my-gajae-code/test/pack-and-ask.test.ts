@@ -130,6 +130,95 @@ print(module._cdp_matches_dedicated_profile())
     expect(result.stdout.trim().split("\n")).toEqual(["True", "False"]);
   });
 
+  test("rejects fixed refusal pages and long prompt echoes", () => {
+    const script = `
+import importlib.util
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+prompt = "evidence " * 30
+print(module.rejection_reason("Trusted Access", prompt))
+print(module.rejection_reason(prompt + " copied", prompt))
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("모델 거부 응답 감지: Trusted Access");
+    expect(result.stdout).toContain("프롬프트 앞부분이 응답에 그대로 반복됨");
+  });
+
+  test("allows legitimate short quoted responses below the echo threshold", () => {
+    const script = `
+import importlib.util
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+prompt = "short quoted question " * 5
+print(repr(module.rejection_reason("The question says: " + prompt, prompt)))
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("None");
+  });
+
+  test("allows substantive answers that quote a marker or a long prompt", () => {
+    const script = `
+import importlib.util
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+prompt = "evidence " * 30
+print(repr(module.rejection_reason("Analysis: the page contained Trusted Access, but the code defect is at src/a.py:4.", prompt)))
+print(repr(module.rejection_reason(prompt + " " + ("substantive analysis " * 20), prompt)))
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual(["None", "None"]);
+  });
+
+  test("writes new response artifacts as 0600 without replacing existing files", () => {
+    const script = `
+import importlib.util
+import pathlib
+import stat
+import tempfile
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+path = pathlib.Path(tempfile.mkdtemp()) / "response.md"
+module.write_response_artifact(path, "first")
+print(oct(stat.S_IMODE(path.stat().st_mode)), path.read_text())
+try:
+    module.write_response_artifact(path, "second")
+except FileExistsError:
+    pass
+print(path.read_text())
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual(["0o600 first", "first"]);
+  });
+
+  test("closes and removes its response artifact when private setup fails", () => {
+    const script = `
+import importlib.util
+import pathlib
+import tempfile
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+path = pathlib.Path(tempfile.mkdtemp()) / "response.md"
+module.os.fchmod = lambda *_: (_ for _ in ()).throw(OSError("denied"))
+try:
+    module.write_response_artifact(path, "secret")
+except OSError:
+    pass
+print(path.exists())
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("False");
+  });
+
   test("selects and verifies Korean advanced model and reasoning rows", () => {
     expect(runAdvancedMenuFixture("모델", "추론 강도")).toContain("(True, 'GPT-5.6 Sol (Pro)')");
   });
@@ -157,5 +246,46 @@ print(repr(module._select_advanced_model_and_effort(Page(), "Pro", "GPT-5.6 Sol"
     expect(
       runAdvancedMenuFixture("Model", "Reasoning effort", "GPT-5.6 Thinking"),
     ).toContain("(False, None)");
+  });
+
+  test("drives the August effort slider to Pro and fails closed on a miss", () => {
+    const script = `
+import importlib.util
+spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(engine)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.time.sleep = lambda _: None
+class Slider:
+    def __init__(self, maximum): self.value, self.maximum = 2, maximum
+    def click(self, force=False): pass
+    def get_attribute(self, name):
+        return {"aria-valuenow": str(self.value), "aria-valuemin": "0", "aria-valuemax": str(self.maximum)}[name]
+class Pill:
+    def __init__(self, text): self.text = text
+    def inner_text(self): return self.text() if callable(self.text) else self.text
+class Keyboard:
+    def __init__(self, slider): self.slider = slider
+    def press(self, key):
+        if key == "ArrowLeft": self.slider.value = max(0, self.slider.value - 1)
+        if key == "ArrowRight": self.slider.value = min(self.slider.maximum, self.slider.value + 1)
+class Page:
+    def __init__(self, pro, maximum):
+        self.slider = Slider(maximum)
+        self.keyboard = Keyboard(self.slider)
+        self.pills = [
+            Pill("GPT-5.6 Sol Pro"),
+            Pill(lambda: "Pro" if pro and self.slider.value == 4 else "High"),
+        ]
+    def query_selector_all(self, selector): return self.pills if selector == 'button.__composer-pill' else []
+    def query_selector(self, selector): return self.slider if selector == '[role="slider"]' else None
+success = Page(True, 4)
+miss = Page(False, 3)
+print(repr(module._drive_effort_slider(success, success.slider, "pro")))
+print(repr(module._drive_effort_slider(miss, miss.slider, "pro")))
+print(module._slider_effort_verified(success, "pro"))
+`;
+    const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual(["'Pro'", "None", "True"]);
   });
 });

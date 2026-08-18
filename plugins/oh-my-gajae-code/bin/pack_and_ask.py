@@ -114,6 +114,15 @@ STATUS_INTERVAL = 15
 FORCE_MAX_TRIES = 6    # force-answer 클릭 재시도 상한
 # 첨부 실패 시 pack을 프롬프트에 인라인으로 붙여 보내는 폴백의 크기 상한(초과 시 자르지 않고 중단).
 PASTE_FALLBACK_MAX_CHARS = int(os.environ.get("INSANE_REVIEW_PASTE_MAX", "50000"))
+REFUSAL_MARKERS = (
+    "이 콘텐츠는 표시할 수 없습니다",
+    "Trusted Access",
+    "사이버보안 관련 요청은",
+    "I can't help with that",
+    "I'm unable to help with that",
+)
+PROMPT_ECHO_CHARS = 200
+MIN_ECHO_CHARS = 120
 
 # 출력은 '실행한 현재 프로젝트'의 .insane-review/ 에 저장(플러그인 내부 X — kkirikkiri의 .kkirikkiri 패턴).
 # env INSANE_REVIEW_OUT 또는 --out-dir로 오버라이드.
@@ -651,6 +660,24 @@ def normalize(text: str | None) -> str:
     return re.sub(r"\s+", " ", text).strip() if text else ""
 
 
+def rejection_reason(response: str, prompt: str) -> str | None:
+    """Return why a recovered page is not a usable answer, if applicable."""
+    normalised = normalize(response)
+    if not normalised:
+        return "응답이 비어 있음"
+    for marker in REFUSAL_MARKERS:
+        if normalised.startswith(marker) and len(normalised) <= 1000:
+            return f"모델 거부 응답 감지: {marker}"
+    prompt_normalised = normalize(prompt)
+    prompt_head = prompt_normalised[:PROMPT_ECHO_CHARS]
+    echo_extra = len(normalised) - len(prompt_normalised)
+    if (len(prompt_head) >= MIN_ECHO_CHARS
+            and normalised.startswith(prompt_normalised)
+            and 0 <= echo_extra <= 40):
+        return "프롬프트 앞부분이 응답에 그대로 반복됨(답변 아님)"
+    return None
+
+
 def last_assistant_node(page):
     nodes = page.query_selector_all(ASSISTANT_MSG_SELECTOR)
     return nodes[-1] if nodes else None
@@ -724,6 +751,51 @@ def read_model_pills(page) -> list[str]:
         except Exception:
             continue
     return out
+
+
+def _drive_effort_slider(page, slider, want_l: str) -> str | None:
+    """Select an effort level from the August 2026 slider and verify via the pill."""
+    try:
+        slider.click(force=True)
+        time.sleep(0.4)
+        for _ in range(8):
+            if slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemin"):
+                break
+            page.keyboard.press("ArrowLeft")
+            time.sleep(0.35)
+        for _ in range(9):
+            label = _exact_effort_pill(page, want_l)
+            at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
+            if label and (want_l != "pro" or at_maximum):
+                return label
+            if at_maximum:
+                return None
+            page.keyboard.press("ArrowRight")
+            time.sleep(0.5)
+    except Exception:
+        return None
+    return None
+
+
+def _exact_effort_pill(page, want_l: str) -> str | None:
+    """Return an exact effort label, never a model or unrelated Pro-containing pill."""
+    for pill in read_model_pills(page):
+        lines = [line.strip() for line in pill.splitlines() if line.strip()]
+        for line in lines:
+            if line.casefold() == want_l.casefold():
+                return line[:40]
+    return None
+
+
+def _slider_effort_verified(page, want_l: str) -> bool:
+    try:
+        slider = page.query_selector('[role="slider"]')
+        if slider is None:
+            return False
+        at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
+        return _exact_effort_pill(page, want_l) is not None and (want_l != "pro" or at_maximum)
+    except Exception:
+        return False
 
 
 def _open_switcher(page):
@@ -831,6 +903,15 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     except Exception:
         return False, None
     selected_effort = _click_menu_radio(page, want)
+    slider_used = False
+    if selected_effort is None:
+        try:
+            slider = page.query_selector('[role="slider"]')
+        except Exception:
+            slider = None
+        if slider is not None:
+            selected_effort = _drive_effort_slider(page, slider, want.lower())
+            slider_used = selected_effort is not None
     if selected_effort is None:
         return False, None
     if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
@@ -841,7 +922,9 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     effort_text = _menu_text(effort_row) if effort_row else ""
     verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
     verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
-    verified = verified_model.casefold() == require_model.strip().casefold() and verified_effort.casefold() == want.strip().casefold()
+    effort_ok = (_slider_effort_verified(page, want.strip().casefold())
+                 if slider_used else verified_effort.casefold() == want.strip().casefold())
+    verified = verified_model.casefold() == require_model.strip().casefold() and effort_ok
     try:
         page.keyboard.press("Escape")
     except Exception:
@@ -920,27 +1003,51 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
 
     # 추론단계 클릭 대상 탐색
     clicked = None
-    cands = []
-    for sel in EFFORT_ITEM_SELECTORS:
+    slider_used = False
+    if not before["items"]:
         try:
-            cands.extend(page.query_selector_all(sel))
+            slider = page.query_selector('[role="slider"]')
         except Exception:
-            continue
-
-    for exact in (True, False):
-        for it in cands:
+            slider = None
+        if slider is not None:
+            label = _drive_effort_slider(page, slider, want_l)
+            if not label:
+                print(f"  ❌ 추론단계 슬라이더에서 '{want}' 단계를 못 찾음 → 중단(전송 안 함)")
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return False, None
+            print(f"  추론단계 슬라이더: {label!r} 선택")
+            clicked = f"slider:{label}"
+            slider_used = True
             try:
-                t = (it.inner_text() or "").strip()
-                low = t.lower()
-                if (exact and low == want_l) or (not exact and want_l in low):
-                    it.click()
-                    clicked = t.splitlines()[0][:40]
-                    time.sleep(1.5)  # 클릭 후 드롭다운이 닫히는 시간 대기
-                    break
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            time.sleep(0.5)
+    cands = []
+    if not clicked:
+        for sel in EFFORT_ITEM_SELECTORS:
+            try:
+                cands.extend(page.query_selector_all(sel))
             except Exception:
                 continue
-        if clicked:
-            break
+
+        for exact in (True, False):
+            for it in cands:
+                try:
+                    t = (it.inner_text() or "").strip()
+                    low = t.lower()
+                    if (exact and low == want_l) or (not exact and want_l in low):
+                        it.click()
+                        clicked = t.splitlines()[0][:40]
+                        time.sleep(1.5)  # 클릭 후 드롭다운이 닫히는 시간 대기
+                        break
+                except Exception:
+                    continue
+            if clicked:
+                break
 
     if not clicked:
         print(f"  ⚠️  '{want}' 추론단계 항목 못 찾음 → 기본값")
@@ -972,15 +1079,48 @@ def select_model(page, want: str, require_model: str | None = None) -> tuple[boo
         if name_ok and not src_ok:
             print(f"  ❌ 활성 모델 확정 불가(체크표시 없음 + 메뉴에 모델 {len(after['models'])}개: {after['models']}) → fail-closed")
 
-    effort_verified = after["effort_checked"] is not None and want_l in after["effort_checked"].lower()
+    effort_verified = (_slider_effort_verified(page, want_l)
+                       if slider_used else
+                       after["effort_checked"] is not None and want_l in after["effort_checked"].lower())
     verified = model_verified and effort_verified
 
     verified_model = after["model"] or "Unknown Model"
-    verified_effort = after["effort_checked"] or "Default"
+    verified_effort = (_exact_effort_pill(page, want_l)
+                       if slider_used else after["effort_checked"]) or "Default"
     verified_model_name = f"{verified_model} ({verified_effort})"
 
     print(f"  {'✓' if verified else '⚠️'} 최종 모델 검증: model={after['model']} (기대:{require_model}), effort={after['effort_checked']} (기대:{want}) -> 결과={'OK' if verified else '실패'}")
     return verified, verified_model_name
+
+
+def write_response_artifact(path: Path, body: str) -> None:
+    """Create a new private response without following or replacing an artifact."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    identity = os.fstat(fd)
+    try:
+        try:
+            os.fchmod(fd, 0o600)
+        except AttributeError:
+            os.chmod(path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            fd = -1
+            stream.write(body)
+    except Exception:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            current = os.stat(path, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                os.unlink(path)
+        except OSError:
+            pass
+        raise
 
 
 # ---- 첨부 / 입력 / 전송 ----
@@ -1706,13 +1846,17 @@ def main():
     if not response:
         sys.exit("❌ 응답 회수 실패 (모든 재시도 소진)")
 
-    # 패킹 파일 시크릿 위생: --delete-pack이면 삭제
+    # 패킹 파일 시크릿 위생은 응답 판정과 무관하게 --delete-pack 계약을 지킨다.
     if pack_path is not None and args.delete_pack:
         try:
             pack_path.unlink()
             print(f"  🔒 패킹 파일 삭제됨(--delete-pack)")
-        except OSError:
-            pass
+        except OSError as exc:
+            sys.exit(f"❌ 패킹 파일 삭제 실패(--delete-pack): {str(exc)[:120]}")
+
+    rejection = rejection_reason(response, prompt)
+    if rejection:
+        sys.exit(f"❌ 회수한 페이지를 답변으로 인정하지 않음(fail-closed): {rejection}")
 
     resp_path = out_dir / f"response_{label}_{run_tag}.md"
     pack_line = (f"- 패킹: `{pack_path.name}`" + (f" (~{tokens:,} tokens)\n" if tokens else "\n")
@@ -1720,9 +1864,10 @@ def main():
     model_line = f"- 모델: `{verified_model_name}`\n" if verified_model_name else ""
     body = (f"# {label} — GPT 응답 (구독 ChatGPT)\n\n" + pack_line + model_line
             + f"- 프롬프트: {prompt[:80]}...\n\n---\n\n{response}\n")
-    tmp = resp_path.with_suffix(".md.tmp")
-    tmp.write_text(body, encoding="utf-8")
-    os.replace(tmp, resp_path)  # 원자적 저장
+    try:
+        write_response_artifact(resp_path, body)
+    except FileExistsError:
+        sys.exit(f"❌ 응답 산출물이 이미 존재함 → 덮어쓰지 않고 중단: {resp_path}")
     print(f"\n[완료] 응답 저장: {resp_path}")
     if args.council:
         real_stdout.write(response + "\n")
