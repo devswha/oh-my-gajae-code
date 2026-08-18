@@ -19,9 +19,6 @@ native workflow.
   For an installed executable, classify legacy updater support first as described below; only a
   modern updater-supported installation proceeds to `ouroboros --version` and the minimum
   Ouroboros 0.51.7 check. Never auto-install, auto-update, or mutate anything automatically.
-- Treat user goals, answers, and session identifiers as data. Send them through the official GJC
-  route as separate argument values, never executable shell text. Do not use `eval`, `sh -c`,
-  interpolation into executable shell, command substitution, or a shell-generated command line.
 
 ## `/omg:ouroboros-setup`
 
@@ -38,9 +35,15 @@ native workflow.
    sole update command is `ouroboros update --yes --runtime gjc`.
 4. After a successful update, stop. Require the user to restart or reload GJC before any further
    Ouroboros activity.
-5. For a suitable current installation, invoke exactly `ouroboros setup --runtime gjc`. Use an
+5. Inspect the live `gjc --help` output before setup. Ouroboros 0.51.7 requires GJC's
+   `--mode rpc` transport. If the advertised `--mode` values do not include `rpc`, report the
+   GJC/Ouroboros versions as incompatible and stop before setup. Do not treat `text`, `json`, or
+   `acp` as substitutes and do not claim that an installed bridge proves runtime operation.
+6. For a suitable current installation, invoke exactly `ouroboros setup --runtime gjc`. Use an
    upstream-supported non-interactive option only when its live `ouroboros setup --help` output
    confirms that option. Verify the setup command result and relay its restart/reload guidance.
+   Report setup as configuration success only; actual interview operation remains unverified until
+   a first-turn live call succeeds without a GJC RPC protocol error.
 
 ## Deliberate non-goal: plan dispatch
 

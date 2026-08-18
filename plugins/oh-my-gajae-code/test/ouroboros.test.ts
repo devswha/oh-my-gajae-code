@@ -74,6 +74,22 @@ describe("Ouroboros explicit external-integration contract", () => {
     expect(skill).toContain("Never paper over this gap");
   });
 
+  test("fails closed when live GJC does not expose the required RPC transport", () => {
+    const skill = read(skillPath);
+    const setup = read(setupPath);
+    for (const text of [skill, setup]) {
+      expect(text).toContain("`gjc --help`");
+      expect(text).toMatch(/`(?:gjc )?--mode rpc`/);
+      expect(text).toMatch(/`text`, `json`,\s+(?:or|and)\s+`acp`/);
+      expect(text).toContain("stop");
+      expect(text).toContain("GJC RPC protocol error");
+      expect(text).toMatch(/configuration success only/);
+      expect(text.search(/`(?:gjc )?--mode rpc`/)).toBeLessThan(
+        text.indexOf("`ouroboros setup --runtime gjc`"),
+      );
+    }
+  });
+
   test("targeted native install and uninstall own only the skill and setup command", () => {
     const installer = read(installerPath);
     expect(installer).toContain('[ "$target" = "ouroboros" ] || [ "$target" = "ouroboros-setup" ]');

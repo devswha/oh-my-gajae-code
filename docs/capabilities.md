@@ -34,9 +34,9 @@
 
 Ouroboros는 만들고 싶은 것을 인터뷰로 구체화해 작업 명세(`Seed`)로 만들고, 그 명세를 기준으로 개발 과정을 관리하는 외부 도구입니다. OMG에 포함된 프로그램이 아니므로 별도로 설치해야 합니다.
 
-OMG의 `/omg:ouroboros-setup`은 설치 여부와 버전을 확인하고 GJC 연결을 설정하는 도우미입니다. Ouroboros를 자동으로 설치하거나 갱신하지 않으며, 현재는 인터뷰·계획·구현을 대신 실행하지 않습니다.
+OMG의 `/omg:ouroboros-setup`은 설치 여부, 버전, GJC 연결 호환성을 확인하는 도우미입니다. Ouroboros를 자동으로 설치하거나 갱신하지 않으며, 현재는 인터뷰·계획·구현을 대신 실행하지 않습니다.
 
-사용하려면 Python 3.12 이상, `gjc`, `ouroboros-ai` 0.51.7 이상이 필요합니다. 최신 버전 확인은 `ouroboros update --check`, 사용자가 승인한 갱신은 `ouroboros update --yes --runtime gjc`로 수행합니다. 계획은 GJC 기본 `deep-interview`/`ralplan`을 사용합니다.
+사용하려면 Python 3.12 이상, `ouroboros-ai` 0.51.7 이상과 `--mode rpc`를 지원하는 GJC가 필요합니다. 현재 확인한 GJC 0.14.0에는 이 모드가 없어 Ouroboros 인터뷰가 실패합니다. 따라서 지금은 연결을 정상 작동한다고 볼 수 없으며, `/omg:ouroboros-setup`도 호환되지 않는 환경으로 보고 멈춥니다. 계획은 GJC 기본 `deep-interview`/`ralplan`을 사용합니다.
 
 OMG를 제거해도 외부 Ouroboros 프로그램과 설정, `Seed`, 실행 기록은 삭제하지 않습니다.
 

@@ -14,7 +14,7 @@ oh-my-gajae-code 스위트의 단일 진입점(oh-my-zsh의 `omz` 관례 계승)
 - `/omg:setup` — 셋업 전제조건 확인. 멱등.
 - `/omg:no-english [on|off|status]` — 이번 세션의 한국어 우선 표현을 명시적으로 토글.
 - `/omg:insane-review` — GPT-5.6 Sol Pro 웹 코드 리뷰. · 전제: ChatGPT 구독 + 크로미움 로그인
-- `/omg:ouroboros-setup` — 외부 Ouroboros의 수동 설치·상태·업데이트 안내. OMG는 Ouroboros, MCP, bridge를 번들하지 않으며 설치·업데이트를 자동으로 하지 않는다. · 전제: upstream Ouroboros `0.51.7` 이상 + Python `3.12` 이상
+- `/omg:ouroboros-setup` — 외부 Ouroboros의 설치·버전·GJC RPC 호환성 확인. 현재 GJC 0.14.0은 필요한 `--mode rpc`가 없어 연결 불가로 보고한다. · 전제: Ouroboros `0.51.7` 이상 + Python `3.12` 이상
 
 > `insane-review`는 필요한 외부 환경이 없으면 안내하고 안전하게 멈춘다.
 > 위의 `/omg:*`가 현재 공개 커맨드 전부다.

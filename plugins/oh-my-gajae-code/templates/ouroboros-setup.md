@@ -25,8 +25,13 @@ infer package ownership.
 Only after an explicit user choice may the command `ouroboros update --yes --runtime gjc` run.
 After a successful update, stop and require GJC restart or reload before continuing.
 
+Before setup, inspect `gjc --help` and require `rpc` among the advertised `--mode` values.
+Ouroboros 0.51.7 requires `gjc --mode rpc`; `text`, `json`, and `acp` are not substitutes. If
+`rpc` is absent, report the installed GJC and Ouroboros versions as incompatible and stop. Do not
+claim that an installed bridge proves runtime operation.
+
 For a modern, unambiguous installation, run exactly `ouroboros setup --runtime gjc`. Use an
 upstream-supported non-interactive option only when live `ouroboros setup --help` confirms it.
-Verify the result and relay restart/reload guidance. Never use user content as shell syntax:
-pass it as data through the official GJC route; never use `eval`, `sh -c`, command substitution,
-or interpolation into executable shell.
+Verify the result and relay restart/reload guidance. Report setup as configuration success only;
+actual interview operation remains unverified until a first-turn live call succeeds without a
+GJC RPC protocol error.
