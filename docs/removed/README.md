@@ -20,7 +20,7 @@ archive is the browsable record.
 
 ## Entries
 
-### `ouroboros` — removed in v0.33.0 (commit `PENDING`)
+### `ouroboros` — removed in v0.33.0 (commit `4dc72c8`)
 | archived file | original path |
 |---|---|
 | `ouroboros/SKILL.md` | `plugins/oh-my-gajae-code/skills/ouroboros/SKILL.md` |
