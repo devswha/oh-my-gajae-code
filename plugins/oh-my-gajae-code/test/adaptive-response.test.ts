@@ -114,7 +114,7 @@ describe("adaptive response contract", () => {
   });
 
 
-  test("keeps the exact public surface at six skills and eight commands", () => {
+  test("keeps the exact public surface at seven skills and nine commands", () => {
     const skillRoot = join(pluginRoot, "skills");
     const skillNames = readdirSync(skillRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && existsSync(join(skillRoot, entry.name, "SKILL.md")))
@@ -125,7 +125,7 @@ describe("adaptive response contract", () => {
       .map((name) => name.slice(0, -3))
       .sort();
 
-    expect(skillNames).toEqual(["adaptive-response", "deep-onboarding", "extragoal", "insane-review", "multi-harness-research", "no-english"]);
+    expect(skillNames).toEqual(["adaptive-response", "deep-onboarding", "extragoal", "insane-review", "multi-harness-research", "no-english", "ouroboros"]);
     expect(commandNames).toEqual([
       "deep-onboarding",
       "gate",
@@ -134,6 +134,7 @@ describe("adaptive response contract", () => {
       "multi-harness",
       "no-english",
       "omg",
+      "ouroboros-setup",
       "setup",
     ]);
   });

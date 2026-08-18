@@ -1,6 +1,6 @@
 # 기능 안내
 
-`oh-my-gajae-code`는 스킬 6개와 커맨드 8개(`/omg` 및 `/omg:*` 7개)를 한 번에 설치합니다. 플러그인 관리는 터미널의 `gjc plugin ...` CLI에서만 하며, `gjc` 세션에 `/plugin` 커맨드는 없습니다.
+`oh-my-gajae-code`는 스킬 7개와 커맨드 9개(`/omg` 및 `/omg:*` 8개)를 한 번에 설치합니다. 플러그인 관리는 터미널의 `gjc plugin ...` CLI에서만 하며, `gjc` 세션에 `/plugin` 커맨드는 없습니다.
 
 ## 공통 전제
 
@@ -54,6 +54,16 @@ Linux user namespace, 실행 가능한 `bwrap`, 지원되는 정확한 자격 �
 
 원문: [`SKILL.md`](../plugins/oh-my-gajae-code/skills/multi-harness-research/SKILL.md)
 
+### `ouroboros`
+
+외부 upstream `ouroboros-ai` >=0.51.7와 Python >=3.12, `gjc`가 있어야 하는 얇은 명시적 bridge입니다. OMG 설치는 bridge skill·command wrapper만 복사하고 Ouroboros를 설치하거나 갱신하지 않습니다.
+
+`/omg:ouroboros-setup`은 설치와 GJC bridge를 검사한 뒤 native `ouroboros update --check`만 수행합니다. 갱신은 사용자 승인 뒤에만 `ouroboros update --yes --runtime gjc`로 실행합니다. Ouroboros 0.51.7의 GJC dispatcher는 다중 턴 인터뷰 continuation과 Seed client-gate attestation을 전달하지 못하므로 OMG plan wrapper는 제공하지 않습니다. 계획에는 GJC native `deep-interview`/`ralplan`을 사용합니다. bare `ooo ...`는 upstream Ouroboros 명령이며 OMG slash command가 아닙니다.
+
+OMG uninstall은 자체 skill·template만 제거하고 외부 Ouroboros package, `~/.ouroboros`, GJC bridge extension, MCP state, Seeds, runs를 보존합니다.
+
+원문: [`SKILL.md`](../plugins/oh-my-gajae-code/skills/ouroboros/SKILL.md)
+
 ## 커맨드
 
-`/omg`, `/omg:setup`, `/omg:gate`, `/omg:gate-always`, `/omg:no-english`, `/omg:insane-review`, `/omg:deep-onboarding`, `/omg:multi-harness`를 제공합니다. 설치는 [README](../README.md)의 원샷 명령 또는 [INSTALLATION.md](../INSTALLATION.md)를 따릅니다.
+`/omg`, `/omg:setup`, `/omg:gate`, `/omg:gate-always`, `/omg:no-english`, `/omg:insane-review`, `/omg:deep-onboarding`, `/omg:multi-harness`, `/omg:ouroboros-setup`을 제공합니다. 설치는 [README](../README.md)의 원샷 명령 또는 [INSTALLATION.md](../INSTALLATION.md)를 따릅니다.

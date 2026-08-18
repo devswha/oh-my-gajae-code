@@ -1,7 +1,7 @@
 # oh-my-gajae-code (plugin)
 
-**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 6개 + 커맨드 8개
-(`/omg` + `/omg:*` 7개)가 전부 들어온다. `insane-review`는 ChatGPT+크로미움,
+**Gajae Code(gjc)의 oh-my 단일 플러그인.** 한 번 설치로 스킬 7개 + 커맨드 9개
+(`/omg` + `/omg:*` 8개)가 전부 들어온다. `insane-review`는 ChatGPT+크로미움,
 `multi-harness-research`는 Linux user namespace+`bwrap`, 정확한 credential-file layout,
 그리고 네 provider CLI의 기존 로그인이 필요하다.
 ## v0.28.0 identity cutover
@@ -23,13 +23,14 @@ bash oh-my-gajae-code/install.sh
 플러그인 marketplace 추가·설치·업데이트·제거는 **터미널의 `gjc plugin …` shell CLI만** 쓴다.
 gjc 세션의 `/plugin …`은 slash command가 아니라 채팅 텍스트다.
 
-## 들어있는 것 (스킬 6 · 커맨드 8)
+## 들어있는 것 (스킬 7 · 커맨드 10)
 
 ### 스킬
-`adaptive-response` · `no-english` · `extragoal` · `insane-review` · `deep-onboarding` · `multi-harness-research`
+`adaptive-response` · `no-english` · `extragoal` · `insane-review` · `deep-onboarding` · `multi-harness-research` · `ouroboros`
 
-`adaptive-response`, `no-english`, `multi-harness-research`는 자연어로 자동 활성화되지 않는다.
-각각 `/omg:gate*`, `/omg:no-english`, `/omg:multi-harness`에서만 명시적으로 불러온다.
+`adaptive-response`, `no-english`, `multi-harness-research`, `ouroboros`는 자연어로 자동 활성화되지 않는다.
+각각 `/omg:gate*`, `/omg:no-english`, `/omg:multi-harness`, `/omg:ouroboros-setup`에서만
+명시적으로 불러온다.
 `no-english`는 일반 한국어 설명만 다듬으며 `ultragoal`, `ralplan`, `deep-interview`, `team` 같은
 GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한글로 음역하지 않는다.
 
@@ -44,8 +45,15 @@ GJC 정식 이름과 코드·명령·경로·API 이름은 번역하거나 한�
 | `/omg:insane-review` | GPT-5.6 Sol Pro 웹 코드 리뷰 (API 비용 0) | ChatGPT 구독 + 크로미움 로그인 |
 | `/omg:deep-onboarding [출력 경로]` | 저장소 분석·인터뷰 뒤 확인된 경로에 프로젝트 맵·ADR 제안·인수인계 생성 | — |
 | `/omg:multi-harness [확인된 조사 과제]` | 동일 과제를 정확한 네 read-only harness에 직접 fan-out하고 프로젝트 밖 XDG에 결과 보존 | Linux + bwrap + GJC/Codex/Claude의 지원 layout·기존 로그인 |
+| `/omg:ouroboros-setup` | 외부 Ouroboros 설치·GJC bridge 확인 및 native update check | Python >=3.12 + `gjc` + `ouroboros-ai` >=0.51.7 |
 
 > 전제가 붙은 커맨드는 필요한 도구가 없으면 실행 시 안내하고 멈춘다.
+
+### Ouroboros bridge boundary
+
+원샷 OMG 설치는 skill·command wrapper만 복사하고 Ouroboros를 설치·업데이트하지 않는다. `/omg:ouroboros-setup`은 `ouroboros update --check`만 실행하며, 갱신은 사용자 승인 뒤 `ouroboros update --yes --runtime gjc`로만 한다. Ouroboros 0.51.7의 GJC dispatcher는 다중 턴 인터뷰 continuation과 Seed client-gate attestation을 전달하지 못하므로 OMG plan wrapper는 제공하지 않는다. 계획에는 GJC native `deep-interview`/`ralplan`을 사용한다. bare `ooo ...`는 upstream Ouroboros 명령이고 OMG slash command가 아니다.
+
+OMG uninstall은 자체 skill·template만 제거한다. 외부 package, `~/.ouroboros`, GJC bridge extension, MCP state, Seeds, runs는 보존한다.
 
 ### v0.29.0 묘비
 
