@@ -16,7 +16,7 @@
 # plugin install, and the NATIVE skill/command copy. gjc 0.9.x auto-exposes plugin
 # commands as `oh-my-gajae-code:*` (wrong namespace), so command bodies ship in templates/ and
 # install natively as `omg:*`; skills install natively too. Model selection stays entirely
-# with GJC defaults/built-ins; the gate always-on toggle is exposed through /omg:setup. Idempotent. Shell CLI only.
+# with GJC defaults/built-ins; `/omg:setup` provides read-only prerequisite checks. Idempotent. Shell CLI only.
 set -euo pipefail
 
 MARKET_DEFAULT="devswha/oh-my-gajae-code"
@@ -198,7 +198,7 @@ cat <<DONE
 ✓ oh-my-gajae-code installed — one plugin, 4 skills + 5 commands (/omg + 4 /omg:*), all native surfaces installed.
   Open a NEW gjc session (or run /move .).
     /omg   → catalog of everything you got
-  (Optional: /omg:setup checks prerequisites / explains the gate always-on mode.)
+  (Optional: /omg:setup checks prerequisites.)
 
 ════════════════ v0.28.0 cutover ════════════════
   /omg:* commands remain stable.
