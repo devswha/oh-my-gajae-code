@@ -1,6 +1,6 @@
 {
   "name": "oh-my-gajae-code",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "description": "oh-my-gajae-code — focused Gajae Code suite with 5 skills and 5 commands. Skills: no-english, extragoal, insane-review, insane-search, gpt-image. Commands: /omg, /omg:setup, /omg:no-english, /omg:insane-review, /omg:gpt-image.",
   "author": {
     "name": "devswha",
