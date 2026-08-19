@@ -503,15 +503,23 @@ def _receipt_binds_dedicated_profile(port: int, live_ws_path: str) -> bool:
         return False
 
 
-def _argv_flag_last_value(argv: list[str], flag: str) -> str | None:
-    """"--flag=VALUE"와 "--flag VALUE"의 **마지막** 값(Chromium 우선순위와 동일)."""
+def _argv_flag_last_value(argv: list[str], flag: str) -> tuple[bool, str | None]:
+    """"--flag=VALUE"와 "--flag VALUE"의 **마지막** 값(Chromium 우선순위와 동일).
+
+    반환: (ok, value). ok=False면 그 argv는 해석이 모호하므로 증명으로 쓰지
+    않는다(fail-closed) — 값 없는 등장(공백 형태 뒤 토큰 부재/'-' 시작 토큰)은
+    Chromium이 부울 스위치로 처리할 수 있어 우리가 재현할 수 없다. 우리 런처는
+    '=' 형태만 생성한다.
+    """
     value = None
     for i, token in enumerate(argv):
-        if token == flag and i + 1 < len(argv):
+        if token == flag:
+            if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+                return False, None
             value = argv[i + 1]
         elif token.startswith(flag + "="):
             value = token[len(flag) + 1:]
-    return value
+    return True, value
 
 
 def _argv_binds_dedicated_profile(argv: list[str], port: int = CDP_PORT) -> bool:
@@ -521,10 +529,11 @@ def _argv_binds_dedicated_profile(argv: list[str], port: int = CDP_PORT) -> bool
     경로는 절대경로 문자열만(Chromium은 '~' 확장/상대경로 해석을 검증자와 다르게
     할 수 있으므로 애초에 우리 런처가 쓰는 절대경로 형태만 받는다).
     """
-    if _argv_flag_last_value(argv, "--remote-debugging-port") != str(port):
+    ok_port, port_value = _argv_flag_last_value(argv, "--remote-debugging-port")
+    if not ok_port or port_value != str(port):
         return False
-    value = _argv_flag_last_value(argv, "--user-data-dir")
-    if not value or not Path(value).is_absolute():
+    ok_dir, value = _argv_flag_last_value(argv, "--user-data-dir")
+    if not ok_dir or not value or not Path(value).is_absolute():
         return False
     try:
         return Path(value).resolve(strict=False) == BROWSER_PROFILE_DIR
@@ -540,25 +549,26 @@ def _exe_is_chromium_family(exe: str) -> bool:
 
 
 def _linux_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
-    """/proc만으로 **루프백** port를 LISTEN하는 프로세스의 (argv, 실행파일명).
+    """/proc만으로 127.0.0.1:port를 LISTEN하는 프로세스의 (argv, 실행파일명).
 
-    주소까지 정확히 본다(계약: 루프백만). IPv4 127.0.0.1(0100007F) 또는 IPv6 ::1.
+    증명 주소는 엔진이 실제로 fetch/attach 하는 주소(127.0.0.1)와 **동일하게**
+    한다 — 다른 주소(::1 등)의 리스너를 증명에 섞으면 '다른 프로세스 증명 → 이
+    주소 접속'의 조합 오류가 생긴다. IPv6 루프백은 애초에 쓰지 않는다.
     """
     wanted = f"{port:04X}"
     inodes: set[str] = set()
-    for table, loopback in (("/proc/net/tcp", "0100007F"), ("/proc/net/tcp6", "0" * 31 + "1")):
-        try:
-            lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
-        except OSError:
+    try:
+        lines = Path("/proc/net/tcp").read_text(encoding="ascii").splitlines()[1:]
+    except OSError:
+        return []
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 10 or fields[3] != "0A":  # 0A = LISTEN
             continue
-        for line in lines:
-            fields = line.split()
-            if len(fields) < 10 or fields[3] != "0A":  # 0A = LISTEN
-                continue
-            host_hex, _, port_hex = fields[1].rpartition(":")
-            if port_hex.upper() != wanted or host_hex.upper() != loopback:
-                continue
-            inodes.add(fields[9])
+        host_hex, _, port_hex = fields[1].rpartition(":")
+        if port_hex.upper() != wanted or host_hex.upper() != "0100007F":  # 127.0.0.1
+            continue
+        inodes.add(fields[9])
     if not inodes:
         return []
     wanted_sockets = {f"socket:[{inode}]" for inode in inodes}
@@ -595,19 +605,22 @@ def _linux_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
 
 
 def _macos_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
-    """lsof로 루프백 LISTEN pid 수집(127.0.0.1 / ::1 각각 조회) → (argv, 실행파일명)."""
+    """lsof로 127.0.0.1:port LISTEN pid 수집 → (argv, 실행파일명).
+
+    증명 주소는 fetch/attach 주소(127.0.0.1)와 동일하게만 — 다른 주소의 리스너를
+    섞지 않는다(조합 오류 방지).
+    """
     pids: set[str] = set()
-    for addr in ("127.0.0.1", "::1"):
-        try:
-            out = subprocess.run(
-                ["lsof", "-nP", f"-iTCP@{addr}:{port}", "-sTCP:LISTEN", "-F", "p"],
-                capture_output=True, text=True, timeout=5,
-            ).stdout
-        except (OSError, subprocess.SubprocessError):
-            continue
-        for line in out.splitlines():
-            if line.startswith("p") and line[1:].strip().isdigit():
-                pids.add(line[1:].strip())
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", f"-iTCP@127.0.0.1:{port}", "-sTCP:LISTEN", "-F", "p"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    for line in out.splitlines():
+        if line.startswith("p") and line[1:].strip().isdigit():
+            pids.add(line[1:].strip())
     found: list[tuple[list[str], str]] = []
     for pid in sorted(pids):
         try:
@@ -638,7 +651,10 @@ def _windows_split_command_line(line: str) -> list[str]:
 
 
 def _windows_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
-    """netstat -aon에서 루프백(127.0.0.1 / [::1]) LISTEN만 수집 → (argv, 실행파일명)."""
+    """netstat -aon에서 127.0.0.1:port LISTEN만 수집 → (argv, 실행파일명).
+
+    증명 주소는 fetch/attach 주소(127.0.0.1)와 동일하게만.
+    """
     out = subprocess.run(["netstat", "-aon"], capture_output=True, text=True, timeout=10).stdout
     pids = set()
     for line in out.splitlines():
@@ -646,7 +662,7 @@ def _windows_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
         if len(parts) < 5 or parts[3] != "LISTENING":
             continue
         host, _, port_str = parts[1].rpartition(":")
-        if port_str != str(port) or host not in ("127.0.0.1", "[::1]"):
+        if port_str != str(port) or host != "127.0.0.1":
             continue
         if parts[4].isdigit():
             pids.add(parts[4])
@@ -674,8 +690,8 @@ def _cdp_listener_cmdlines(port: int = CDP_PORT) -> list[tuple[list[str], str]]:
     """**루프백** port를 LISTEN 중인 프로세스의 (argv, 실행파일명)(best-effort, 실패 시 []).
 
     Chrome 136+/145+는 영수증을 남기지 않으므로, '포트를 점유한 프로세스 자체의
-    실행인자'로 전용 프로필을 확정한다(커널 수준 증거). 주소는 루프백만, 실행파일은
-    크로미움 계열만 수용한다.
+    실행인자'로 전용 프로필을 확정한다(커널 수준 증거). 주소는 fetch/attach 주소인
+    127.0.0.1과 동일하게만, 실행파일은 크로미움 계열만 수용한다.
     """
     try:
         system = platform.system()

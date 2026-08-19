@@ -167,6 +167,10 @@ try:
     print("trailing conflicting flag rejected:", module._cdp_matches_dedicated_profile())
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=relative/path"], "chrome")]
     print("relative path rejected:", module._cdp_matches_dedicated_profile())
+    module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + me, "--user-data-dir"], "chrome")]
+    print("trailing valueless flag rejected:", module._cdp_matches_dedicated_profile())
+    module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir", "--no-first-run"], "chrome")]
+    print("dash-following space form rejected:", module._cdp_matches_dedicated_profile())
     os.chmod(module.BROWSER_PROFILE_DIR, 0o755)
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + me], "chrome")]
     print("loose profile dir rejected:", module._cdp_matches_dedicated_profile())
@@ -187,6 +191,8 @@ finally:
       "last flag value wins: True",
       "trailing conflicting flag rejected: False",
       "relative path rejected: False",
+      "trailing valueless flag rejected: False",
+      "dash-following space form rejected: False",
       "loose profile dir rejected: False",
     ]);
   });

@@ -89,6 +89,16 @@ Patch release: insane-review / gpt-image CDP 엔진이 Chrome 136+/145+ 환경�
 - 재검증: bun 146/146(신규 음성 케이스: 비(非)크로미움 실행파일, 중복 플래그
   선행/후행, 상대경로, 느슨한 프로필 모드 거부), 라이브 9222 바인딩 True, 타
   프로필 9333 False, `gpt-image --check-env` 통과.
-- 2차 재리뷰 판정: (아래 기록)
+- 2차 재리뷰 판정: REQUEST_CHANGES — (H) `--flag value`/값 없는 중복 등장의
+  Chromium 파싱 차이, (H) 리스너 탐색이 127.0.0.1과 ::1을 합치며 fetch/attach
+  주소(127.0.0.1)와 불일치 — '::1의 정당 크롬이 IPv4의 다른 프로세스를 증명'
+  조합 가능, (M) `/proc/net/tcp6`의 `::1` 인코딩 오타(워드 단위 little-endian),
+  (M) `shlex(posix=False)`≠CommandLineToArgvW(공백 포함 경로).
+- 2차 수정: 리스너 증명 주소를 fetch/attach 주소인 **127.0.0.1로 한정**(tcp6
+  조회 삭제로 인코딩 이슈도 소멸, macOS lsof/Windows netstat 동일), 값 없는
+  플래그 등장(후행/'-' 시작 토큰)은 해석 모호로 전체 거부(fail-closed),
+  Windows 파서는 부분 파서임을 명시(이상 형태는 절대경로 검증에서 자동 거부).
+  재검증: bun 146/146(값 없는 후행/'-' 후속 형태 거부 케이스 추가), 라이브
+  바인딩 True, gpt-image --check-env 통과.
 
 - (기록: 릴리스 시점 cross-review 결과 아래에 추가)
