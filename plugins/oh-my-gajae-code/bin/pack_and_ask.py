@@ -488,13 +488,23 @@ def _receipt_binds_dedicated_profile(port: int, live_ws_path: str) -> bool:
     안쪽에 있으므로 파일 자체 모드 대신 소유자/형태만 검증한다.
     """
     receipt = BROWSER_PROFILE_DIR / "DevToolsActivePort"
+    # lstat→read 경합(심볼릭링크 스왑)을 없앤다: O_NOFOLLOW로 열고 fstat으로
+    # 동일 파일인 채로 읽는다(Windows에 O_NOFOLLOW가 없으면 일반 open).
     try:
-        receipt_stat = receipt.lstat()
-        if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
-            return False
-        if (hasattr(os, "geteuid") and receipt_stat.st_uid != os.geteuid()) or receipt_stat.st_size > 4096:
-            return False
-        lines = receipt.read_text(encoding="utf-8").splitlines()
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(receipt, flags)
+        try:
+            receipt_stat = os.fstat(fd)
+            if not stat.S_ISREG(receipt_stat.st_mode):
+                return False
+            if (hasattr(os, "geteuid") and receipt_stat.st_uid != os.geteuid()) or receipt_stat.st_size > 4096:
+                return False
+            data = os.read(fd, 4097)
+        finally:
+            os.close(fd)
+        lines = data.decode("utf-8", errors="strict").splitlines()
         if len(lines) < 2 or lines[0].strip() != str(port):
             return False
         expected_path = lines[1].strip()
@@ -1282,6 +1292,16 @@ def _radio_effort_actually_checked(page, want: str) -> bool:
         pass
     return False
 
+def _effort_row_shows(page, want: str) -> bool:
+    """상위 '추론' 행의 현재 값이 별칭 후보 중 하나인지(라디오가 사라진 UI용 검증)."""
+    wanted = {c.casefold() for c in _effort_candidates(want)}
+    row = _find_menu_row(page, ("추론", "reasoning"))
+    if row is None:
+        return False
+    lines = [line.strip() for line in _menu_text(row).splitlines() if line.strip()]
+    return bool(lines) and lines[-1].casefold() in wanted
+
+
 def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
     """Select Model and Reasoning effort from the current Advanced menu UX."""
     if not _expand_advanced_options(page):
@@ -1312,17 +1332,23 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
         return False, None
     # 추론 강도: 라벨 체계가 자주 바뀐다(2026-08: 'Pro' → '최대/울트라' 관측).
-    # 별칭 후보 순서로 라디오 시도 → 실제 checked 확인 → 아니면 슬라이더 폴백.
+    # 별칭 후보 순서로 라디오 시도 → 검증은 (a) 라디오 aria-checked 또는
+    # (b) 성공 선택이 서브메뉴를 닫아버린 UI를 위한 상위 행 값. 그래도 없으면 슬라이더.
     effort_candidates = _effort_candidates(want)
     selected_effort = None
     slider_used = False
     if _click_menu_row(page, ("추론", "reasoning")):
         time.sleep(0.8)
         for cand in effort_candidates:
-            if _click_menu_radio(page, cand) is not None and _radio_effort_actually_checked(page, want):
+            clicked = _click_menu_radio(page, cand) is not None
+            if clicked and _radio_effort_actually_checked(page, want):
                 selected_effort = cand
                 break
-            if not _ensure_switcher_menu(page) or not _click_menu_row(page, ("추론", "reasoning")):
+            # 서브메뉴가 닫혔을 수 있다(성공 선택이 닫는 UI) — 재오픈 후 상위 행 값으로 검증
+            if clicked and _ensure_switcher_menu(page) and _expand_advanced_options(page) and _effort_row_shows(page, want):
+                selected_effort = cand
+                break
+            if not _ensure_switcher_menu(page) or not _expand_advanced_options(page) or not _click_menu_row(page, ("추론", "reasoning")):
                 break
             time.sleep(0.6)
     if selected_effort is None:
@@ -1622,7 +1648,10 @@ def put_text(page, message: str):
                 if (el) { el.scrollIntoView({block:'center'}); el.focus(); } }"""
         )
     time.sleep(0.3)
-    clear_composer(page)  # 잔여 draft를 지우고 깨끗한 상태에서 입력(전용 프로필 소유 상태)
+    # 잔여 draft를 지운다 — '비었음'을 읽어 확인하지 못하면 입력하지 않는다(fail-closed:
+    # 잔여 텍스트가 프롬프트에 섞여 전송되는 것을 원천 차단. 전용 프로필 소유 상태).
+    if not clear_composer(page):
+        raise RuntimeError("composer 초기화 실패(잔여 텍스트 제거 불가) → 중단(fail-closed)")
     # 크로스플랫폼: OS 클립보드/⌘V(맥 전용) 대신 Playwright 네이티브 insert_text(insertText 이벤트).
     # → mac/win/linux 동일 동작 + 동시 실행 시 클립보드 경합 제거. 실패 시 키 입력 폴백.
     try:
@@ -1645,29 +1674,25 @@ def read_composer_text(page) -> str:
 
 
 def composer_has_prompt(page, prompt: str) -> bool:
-    """프롬프트 '전체'가 composer에 들어갔는지 검증(앞 24자 가드가 아니라 동일성).
-    잘림(want⊄got)·중복/오염(got가 과도하게 김) 모두 fail-closed로 거부 → '첨부만/잘린 질문' 전송 차단."""
+    """프롬프트 '전체'가 composer에 **정확히** 들어갔는지 검증(정규화 후 동일성).
+
+    잘림·중복·앞뒤 잔여 draft·그 외 오염 모두 '동일성 불일치'로 거부한다(fail-closed).
+    예전의 1.5배 길이 여유 슬랙은 짧은 잔여 draft가 긴 프롬프트에 붙어 통과하는
+    fail-open 구멍이었으므로 제거했다."""
     want = normalize(prompt)
     if not want:
         return True
-    got = normalize(read_composer_text(page))
-    if want not in got:                  # 일부만 입력(잘림) → 거부
-        return False
-    if got.count(want) > 1:              # 프롬프트가 통째로 2번 이상(중복 입력) → 거부(길이 무관)
-        return False
-    if len(got) > len(want) * 1.5 + 20:  # 그 외 오염 payload → 거부
-        return False
-    return True
+    return normalize(read_composer_text(page)) == want
 
 
-def clear_composer(page):
-    """재입력 전 composer를 비운다(중복 입력 방지).
+def clear_composer(page) -> bool:
+    """composer를 비운다(중복 입력 방지) — '비었음'을 읽어 확인한 뒤에만 True.
 
     select-all은 OS별 단축키를 쓴다 — Linux/Windows에선 Control+a(Meta+a는
-    Super키라 전체선택이 아니었다). 지워졌는지 읽어 확인하고, 안 비었으면 재시도.
+    Super키라 전체선택이 아니었다). 읽기 실패도 '미확인'으로 False(fail-closed).
     """
     select_all = "Meta+a" if platform.system() == "Darwin" else "Control+a"
-    for _attempt in range(2):
+    for _attempt in range(3):
         try:
             page.evaluate(
                 """() => { const el = document.querySelector('#prompt-textarea')
@@ -1678,9 +1703,10 @@ def clear_composer(page):
             page.keyboard.press("Backspace")
             time.sleep(0.2)
             if not read_composer_text(page).strip():
-                return
+                return True
         except Exception:
-            pass
+            continue
+    return False
 
 
 def click_send(page) -> bool:
