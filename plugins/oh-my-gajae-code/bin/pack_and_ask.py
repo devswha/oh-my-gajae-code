@@ -503,35 +503,50 @@ def _receipt_binds_dedicated_profile(port: int, live_ws_path: str) -> bool:
         return False
 
 
-def _argv_flag_values(argv: list[str], flag: str) -> list[str]:
-    """"--flag=VALUE"와 "--flag VALUE" 두 형태의 값을 모두 수집."""
-    values = []
+def _argv_flag_last_value(argv: list[str], flag: str) -> str | None:
+    """"--flag=VALUE"와 "--flag VALUE"의 **마지막** 값(Chromium 우선순위와 동일)."""
+    value = None
     for i, token in enumerate(argv):
         if token == flag and i + 1 < len(argv):
-            values.append(argv[i + 1])
+            value = argv[i + 1]
         elif token.startswith(flag + "="):
-            values.append(token[len(flag) + 1:])
-    return values
+            value = token[len(flag) + 1:]
+    return value
 
 
 def _argv_binds_dedicated_profile(argv: list[str], port: int = CDP_PORT) -> bool:
-    """argv가 '전용 user-data-dir + 지정 디버그 포트'로 실행된 크로미움인지."""
-    if str(port) not in _argv_flag_values(argv, "--remote-debugging-port"):
+    """argv가 '전용 user-data-dir + 지정 디버그 포트'로 실행된 크로미움인지.
+
+    값은 마지막 등장만 수용(중복 플래그에서 선행값으로의 위장 차단)하고,
+    경로는 절대경로 문자열만(Chromium은 '~' 확장/상대경로 해석을 검증자와 다르게
+    할 수 있으므로 애초에 우리 런처가 쓰는 절대경로 형태만 받는다).
+    """
+    if _argv_flag_last_value(argv, "--remote-debugging-port") != str(port):
         return False
-    for value in _argv_flag_values(argv, "--user-data-dir"):
-        try:
-            if Path(value).expanduser().resolve(strict=False) == BROWSER_PROFILE_DIR:
-                return True
-        except (OSError, ValueError, RuntimeError):
-            continue
-    return False
+    value = _argv_flag_last_value(argv, "--user-data-dir")
+    if not value or not Path(value).is_absolute():
+        return False
+    try:
+        return Path(value).resolve(strict=False) == BROWSER_PROFILE_DIR
+    except (OSError, ValueError, RuntimeError):
+        return False
 
 
-def _linux_listener_cmdlines(port: int) -> list[list[str]]:
-    """/proc만으로 port를 LISTEN하는 프로세스의 argv 전체 (서브프로세스 없음)."""
-    inodes: set[str] = set()
+CHROMIUM_EXE_HINTS = ("chrome", "chromium", "brave", "msedge", "edge", "vivaldi", "comet")
+
+
+def _exe_is_chromium_family(exe: str) -> bool:
+    return any(hint in exe.lower() for hint in CHROMIUM_EXE_HINTS)
+
+
+def _linux_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
+    """/proc만으로 **루프백** port를 LISTEN하는 프로세스의 (argv, 실행파일명).
+
+    주소까지 정확히 본다(계약: 루프백만). IPv4 127.0.0.1(0100007F) 또는 IPv6 ::1.
+    """
     wanted = f"{port:04X}"
-    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+    inodes: set[str] = set()
+    for table, loopback in (("/proc/net/tcp", "0100007F"), ("/proc/net/tcp6", "0" * 31 + "1")):
         try:
             lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
         except OSError:
@@ -540,13 +555,14 @@ def _linux_listener_cmdlines(port: int) -> list[list[str]]:
             fields = line.split()
             if len(fields) < 10 or fields[3] != "0A":  # 0A = LISTEN
                 continue
-            if fields[1].rsplit(":", 1)[-1].upper() != wanted:
+            host_hex, _, port_hex = fields[1].rpartition(":")
+            if port_hex.upper() != wanted or host_hex.upper() != loopback:
                 continue
             inodes.add(fields[9])
     if not inodes:
         return []
     wanted_sockets = {f"socket:[{inode}]" for inode in inodes}
-    cmdlines: list[list[str]] = []
+    found: list[tuple[list[str], str]] = []
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit():
             continue
@@ -561,6 +577,7 @@ def _linux_listener_cmdlines(port: int) -> list[list[str]]:
                     continue
             if not owns:
                 continue
+            exe = os.readlink(str(proc / "exe"))
             raw = (proc / "cmdline").read_bytes()
         except OSError:
             continue
@@ -573,59 +590,92 @@ def _linux_listener_cmdlines(port: int) -> list[list[str]]:
             except ValueError:
                 continue
         if argv:
-            cmdlines.append(argv)
-    return cmdlines
+            found.append((argv, Path(exe).name))
+    return found
 
 
-def _macos_listener_cmdlines(port: int) -> list[list[str]]:
-    out = subprocess.run(
-        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-F", "p"],
-        capture_output=True, text=True, timeout=5,
-    ).stdout
-    cmdlines: list[list[str]] = []
-    for line in out.splitlines():
-        if not line.startswith("p") or not line[1:].strip().isdigit():
-            continue
+def _macos_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
+    """lsof로 루프백 LISTEN pid 수집(127.0.0.1 / ::1 각각 조회) → (argv, 실행파일명)."""
+    pids: set[str] = set()
+    for addr in ("127.0.0.1", "::1"):
         try:
-            ps = subprocess.run(
-                ["ps", "-o", "command=", "-p", line[1:].strip()],
+            out = subprocess.run(
+                ["lsof", "-nP", f"-iTCP@{addr}:{port}", "-sTCP:LISTEN", "-F", "p"],
                 capture_output=True, text=True, timeout=5,
-            ).stdout.strip()
+            ).stdout
         except (OSError, subprocess.SubprocessError):
             continue
-        if ps:
-            cmdlines.append(shlex.split(ps))
-    return cmdlines
+        for line in out.splitlines():
+            if line.startswith("p") and line[1:].strip().isdigit():
+                pids.add(line[1:].strip())
+    found: list[tuple[list[str], str]] = []
+    for pid in sorted(pids):
+        try:
+            ps = subprocess.run(["ps", "-o", "command=", "-p", pid],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+            comm = subprocess.run(["ps", "-o", "comm=", "-p", pid],
+                                  capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if ps and comm:
+            found.append((shlex.split(ps), Path(comm).name))
+    return found
 
 
-def _windows_listener_cmdlines(port: int) -> list[list[str]]:
+def _windows_split_command_line(line: str) -> list[str]:
+    """Windows CommandLine 파싱 — POSIX shlex는 백슬래시를 escape 처리해 망가뜨리므로
+    posix=False로 자르고 각 토큰의 겹따옴표만 벗긴다."""
+    try:
+        tokens = shlex.split(line, posix=False)
+    except ValueError:
+        return []
+    out = []
+    for token in tokens:
+        if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+            token = token[1:-1]
+        out.append(token)
+    return out
+
+
+def _windows_listener_cmdlines(port: int) -> list[tuple[list[str], str]]:
+    """netstat -aon에서 루프백(127.0.0.1 / [::1]) LISTEN만 수집 → (argv, 실행파일명)."""
     out = subprocess.run(["netstat", "-aon"], capture_output=True, text=True, timeout=10).stdout
     pids = set()
     for line in out.splitlines():
         parts = line.split()
-        if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].rsplit(":", 1)[-1] == str(port):
-            if parts[4].isdigit():
-                pids.add(parts[4])
-    cmdlines: list[list[str]] = []
+        if len(parts) < 5 or parts[3] != "LISTENING":
+            continue
+        host, _, port_str = parts[1].rpartition(":")
+        if port_str != str(port) or host not in ("127.0.0.1", "[::1]"):
+            continue
+        if parts[4].isdigit():
+            pids.add(parts[4])
+    found: list[tuple[list[str], str]] = []
     for pid in sorted(pids):
         try:
-            ps = subprocess.run(
+            row = subprocess.run(
                 ["powershell", "-NoProfile", "-Command",
-                 f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                 "(Get-CimInstance Win32_Process -Filter 'ProcessId=" + pid + "')"
+                 " | Select-Object CommandLine,ExecutablePath | ConvertTo-Json -Compress"],
                 capture_output=True, text=True, timeout=10,
             ).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
+            info = json.loads(row) if row else {}
+            command_line = str(info.get("CommandLine") or "")
+            exe_path = str(info.get("ExecutablePath") or "")
+        except (OSError, subprocess.SubprocessError, ValueError):
             continue
-        if ps:
-            cmdlines.append(shlex.split(ps))
-    return cmdlines
+        argv = _windows_split_command_line(command_line)
+        if argv and exe_path:
+            found.append((argv, Path(exe_path).name))
+    return found
 
 
-def _cdp_listener_cmdlines(port: int = CDP_PORT) -> list[list[str]]:
-    """port를 LISTEN 중인 프로세스의 argv 목록(best-effort, 실패 시 []).
+def _cdp_listener_cmdlines(port: int = CDP_PORT) -> list[tuple[list[str], str]]:
+    """**루프백** port를 LISTEN 중인 프로세스의 (argv, 실행파일명)(best-effort, 실패 시 []).
 
     Chrome 136+/145+는 영수증을 남기지 않으므로, '포트를 점유한 프로세스 자체의
-    실행인자'로 전용 프로필을 확정한다(커널 수준 증거).
+    실행인자'로 전용 프로필을 확정한다(커널 수준 증거). 주소는 루프백만, 실행파일은
+    크로미움 계열만 수용한다.
     """
     try:
         system = platform.system()
@@ -640,32 +690,70 @@ def _cdp_listener_cmdlines(port: int = CDP_PORT) -> list[list[str]]:
     return []
 
 
+def _profile_dir_hardened(profile: Path) -> bool:
+    """전용 프로필 디렉토리 계열이 '우리 소유의 사경로 없는 0700'인지(순수 검증).
+
+    생성(mkdir)은 하지 않는다 — gpt_image_web 위임 경로에서도 쓰는 읽기 전용 검증.
+    """
+    try:
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        current = Path.home().resolve()
+        if profile.resolve(strict=True) != profile:
+            return False
+        for part in profile.relative_to(Path.home().resolve()).parts:
+            current = current / part
+            details = current.lstat()
+            if current.is_symlink() or not stat.S_ISDIR(details.st_mode):
+                return False
+            if uid is not None and details.st_uid != uid:
+                return False
+            if os.name != "nt" and stat.S_IMODE(details.st_mode) & 0o077:
+                return False
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _listener_binds_dedicated_profile(port: int) -> bool:
+    """리스너 증명: 루프백 포트 점유 프로세스가 크로미움 계열 실행파일이며
+    마지막 --user-data-dir/--remote-debugging-port 값이 전용 프로필/포트와 정확히 일치."""
+    for argv, exe in _cdp_listener_cmdlines(port):
+        if _exe_is_chromium_family(exe) and _argv_binds_dedicated_profile(argv, port):
+            return True
+    return False
+
+
 def _cdp_matches_dedicated_profile() -> bool:
     """Bind the live CDP endpoint to the dedicated insane-review browser profile.
 
-    증거는 2중: (1) 구버전 영수증(DevToolsActivePort), (2) 포트 리스너 프로세스
-    argv의 --user-data-dir/--remote-debugging-port 바인딩(Chrome 136+). 어느 하나가
-    전용 프로필을 확정하면 통과, 둘 다 아니면 fail-closed.
+    증거는 2중: (1) 구버전 영수증(DevToolsActivePort), (2) 루프백 리스너 프로세스
+    (크로미움 실행파일)의 --user-data-dir/--remote-debugging-port 바인딩(Chrome 136+).
+    어느 하나가 전용 프로필을 확정하면 통과, 둘 다 아니면 fail-closed. 리스너 증명을
+    마지막에 측정해 TOCTOU 창을 최소화한다(잔여 위험은 동일 사용자 신뢰 경계 내).
     """
     info = _fetch_cdp_info()
     if info is None:
         return False
     shape_ok, live_ws_path = _cdp_info_shape_ok(info, CDP_PORT)
-    if not shape_ok:
+    if not shape_ok or not _profile_dir_hardened(BROWSER_PROFILE_DIR):
         return False
     if _receipt_binds_dedicated_profile(CDP_PORT, live_ws_path):
         return True
-    return any(_argv_binds_dedicated_profile(argv) for argv in _cdp_listener_cmdlines())
+    return _listener_binds_dedicated_profile(CDP_PORT)
 
 
 def cdp_binds_dedicated_profile(port: int, info: dict) -> bool:
-    """형제 CLI(gpt_image_web)용 공개 바인딩 증명 — 동일 전용 프로필 계약."""
+    """형제 CLI(gpt_image_web)용 공개 바인딩 증명 — 동일 전용 프로필 계약.
+
+    위임 이전 gpt_image_web이 스스로 하던 프로필 디렉토리 경성 검증(소유/0700/심볼릭
+    없음)도 여기서 동일하게 강제한다.
+    """
     shape_ok, live_ws_path = _cdp_info_shape_ok(info, port)
-    if not shape_ok:
+    if not shape_ok or not _profile_dir_hardened(BROWSER_PROFILE_DIR):
         return False
     if _receipt_binds_dedicated_profile(port, live_ws_path):
         return True
-    return any(_argv_binds_dedicated_profile(argv, port) for argv in _cdp_listener_cmdlines(port))
+    return _listener_binds_dedicated_profile(port)
 
 
 def launch_browser_exe(path: str) -> bool:

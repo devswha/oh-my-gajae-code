@@ -72,5 +72,23 @@ Patch release: insane-review / gpt-image CDP 엔진이 Chrome 136+/145+ 환경�
   확장했을 뿐 완화 없음.
 
 ## 독립 리뷰
+- 1차(`GJC_NOTIFICATIONS=0 GJC_SDK_DISABLE=1 gjc -p --no-session --model
+  openai-codex/gpt-5.6-sol:max`): **REQUEST_CHANGES** — (C) 리스너 탐색이 포트만
+  보고 루프백 주소 미검증, (H) 실행파일이 크로미움인지 미검증, (H) 중복 플래그
+  임의 값 수용/`~`·상대경로 검증자측 해석, (H) gpt_image 위임으로 프로필 디렉토리
+  경성 검증(소유/0700/심볼릭) 상실, (H) 증명 스냅숏 TOCTOU, (M) Windows
+  CommandLine을 POSIX shlex로 파싱(백슬래시 오염).
+- 수정(전부 반영): Linux `/proc/net/tcp{,6}` 로컬 주소를 `0100007F`/`::1` 정확
+  매칭, macOS `lsof -iTCP@127.0.0.1|::1`, Windows netstat `127.0.0.1`/`[::1]`;
+  리스너 실행파일(`proc/pid/exe`, `ps comm`, CIM ExecutablePath) 크로미움 계열만
+  수용; 플래그는 **마지막 값만** 수용 + 절대경로 문자열만(확장 없음); 공유
+  증명이 `_profile_dir_hardened`(소유/0700/심볼릭 없음, 생성 아닌 순수 검증)을
+  강제 — gpt_image 위임 경로 복원; 리스너 증명을 최종 단계로 재배치해 TOCTOU 창
+  축소(잔여: 동일 사용자 경계, 기존 영수증 설계와 동일); Windows 파싱
+  `shlex(posix=False)`+따옴표 제거로 교체.
+- 재검증: bun 146/146(신규 음성 케이스: 비(非)크로미움 실행파일, 중복 플래그
+  선행/후행, 상대경로, 느슨한 프로필 모드 거부), 라이브 9222 바인딩 True, 타
+  프로필 9333 False, `gpt-image --check-env` 통과.
+- 2차 재리뷰 판정: (아래 기록)
 
 - (기록: 릴리스 시점 cross-review 결과 아래에 추가)
