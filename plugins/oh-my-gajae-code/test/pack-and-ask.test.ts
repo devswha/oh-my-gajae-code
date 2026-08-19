@@ -82,6 +82,20 @@ print(repr(result))
 }
 
 describe("pack_and_ask security and advanced-menu contracts", () => {
+  test("streams live response output for session relay", () => {
+    const source = read(engine);
+    const skill = read(join(pluginRoot, "skills/insane-review/SKILL.md"));
+    const command = read(join(pluginRoot, "templates/insane-review.md"));
+    expect(source).toContain('ap.add_argument("--stream"');
+    expect(source).toContain("reconfigure(line_buffering=True)");
+    expect(source).toContain("── 실시간 응답(생성 중) ──");
+    expect(source).toContain("base_copy=base_copy, stream=args.stream");
+    expect(skill).toContain("### 3.2) 장기 실행 중계");
+    expect(skill).toContain("--stream");
+    expect(command).toContain("--stream");
+    expect(command).toContain("live.log");
+  });
+
   test("uses the verified isolated GJC reviewer selector", () => {
     const contract = read(extragoal);
     expect(contract).toContain("env -u GJC_SESSION_ID GJC_NOTIFICATIONS=0 GJC_SDK_DISABLE=1 gjc -p --no-session --model openai-codex/gpt-5.6-sol:max --tools read,search,find");

@@ -111,6 +111,17 @@ python3 "$IR" \
 python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 ```
 
+
+### 3.2) 장기 실행 중계(기본 권장) — 백그라운드 + 로그 폴링
+Sol Pro 리뷰는 수 분 걸린다. 세션이 멈춘 것처럼 보이지 않게 **엔진을 백그라운드로 띄우고 로그를 폴링**해 Chrome에서 일어나는 일(패킹·모델 검증·생성 진행·실시간 응답)을 사용자에게 중계한다:
+```bash
+mkdir -p .insane-review && python3 -u "$IR" ...위 플래그... --stream \
+  > .insane-review/live.log 2>&1 &
+```
+- bash 비동기(async) 실행 뒤 15~30초 간격으로 `read`로 `.insane-review/live.log`의 **증분**을 읽어: 진행 라인(`모델 검증 OK`, `30s | ⏳ 생성중`…)은 요약해 알리고, `── 실시간 응답(생성 중) ──` 뒤의 본문 조각은 그대로 보여준다.
+- 로그에 `[완료]`가 나오면 프로세스 종료를 확인하고 §4로 간다(응답 파일 회수는 동일).
+- 실패/재시도 로그도 그대로 중계한다 — 사용자가 기다리는 동안 상황을 알 권리가 있다.
+
 ### 3.5) 누락 검증 — **빠진 파일 없는지 감사**
 패킹 직후 출력의 **`📦 패킹 포함 N개 파일: ...`** 목록이 **의도한 관련 파일을 전부 담았는지** 확인한다. 빠진 게 있으면 repomix가 떨어뜨린 것 — 원인별 대응:
 - `🔒 secretlint: 의심 파일 N개 제외` → **시크릿 든 파일이 통째 빠짐**(숨은 누락). secretlint는 필수이며 우회하지 않는다. 그 파일이 필요하면 시크릿을 제거·가린 안전한 사본만 별도 대상으로 검토한다.
@@ -141,7 +152,7 @@ python3 "$IR" --model pro --force-answer-after 90 --prompt "<질문>"
 - 이름 바꾸려면 `--project "<이름>"`, 끄려면 `--no-project`.
 
 ## 주요 플래그
-`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6 Sol"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
+`--target`(생략=프롬프트only) · `--include`(정밀 글롭) · `--ignore` · `--compress` · `--model pro` · `--require-model "GPT-5.6 Sol"` · `--force-answer-after N` · `--max-wait N` · `--retries N` · `--stream`(생성 중 응답 실시간 증분 출력) · `--style xml|markdown|plain` · `--browser <이름|경로>` · `--launch-browser <이름>` · `--list-browsers` · `--project "<이름>"` · `--no-project` · `--pack-only` · `--delete-pack` · `--council`
 
 ## agent-council 멤버로 쓰기
 `references/council-setup.md` 참고. `--council` 모드는 프롬프트를 위치인자로 받고 **응답만 stdout**으로 내보내(진행로그는 stderr) council worker가 그대로 캡처한다. Pro를 웹 전용 council 멤버로 등록하면 다른 모델들과 토론에 참여시킬 수 있다.
