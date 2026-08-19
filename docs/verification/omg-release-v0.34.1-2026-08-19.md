@@ -119,3 +119,10 @@ Patch release: insane-review / gpt-image CDP 엔진이 Chrome 136+/145+ 환경�
   케이스로 교체), 라이브 바인딩 True(실제 argv는 '=' 형태),
   `select_model → (True, 'GPT-5.6 Sol (최대)')`.
 
+## 릴리스 확정 (2026-08-19)
+
+- 원격 재검증: `main` 병합+푸시 후 격리 HOME 신규 설치 — **rc 0, installed
+  version 0.34.1**(캐노니컬 원격), skills 5 / commands 5.
+- gitleaks `v0.34.0..dev`: 커밋 6건 스캔, 누출 없음.
+- 태그 `v0.34.1`(main 48f1053).
+
