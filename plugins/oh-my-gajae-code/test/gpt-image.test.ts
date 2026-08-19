@@ -35,8 +35,10 @@ describe("gpt-image web contract", () => {
     const sharedLease = readFileSync(join(root, "bin", "cdp_lock.py"), "utf8");
     expect(source).toContain('http://127.0.0.1:{port}/json/version');
     expect(source).toContain("DevToolsActivePort");
-    expect(source).toContain("dedicated insane-review browser profile receipt");
+    expect(source).toContain("dedicated insane-review browser profile binding proof");
     expect(source).toContain("from cdp_lock import CdpLease");
+    expect(source).toContain("from pack_and_ask import cdp_binds_dedicated_profile");
+    expect(reviewEngine).toContain("DevToolsActivePort");
     expect(reviewEngine).toContain("from cdp_lock import CdpLease");
     expect(sharedLease).toContain("oh-my-gajae-code-chatgpt-cdp-");
     expect(sharedLease).toContain("another OMG ChatGPT CDP automation is running");

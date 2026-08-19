@@ -9,7 +9,6 @@ import json
 import os
 import re
 import signal
-import stat
 import sys
 import tempfile
 import time
@@ -65,43 +64,17 @@ def cdp_info(port: int) -> dict:
 
 
 def dedicated_profile_ok(port: int, info: dict) -> bool:
-    """Equivalent to pack_and_ask.py's private-profile DevToolsActivePort receipt check."""
-    home = Path.home().resolve()
-    profile = Path(
-        os.environ.get(
-            "INSANE_REVIEW_PROFILE",
-            str(home / ".insane-review" / "browser-profile"),
-        )
-    ).expanduser()
+    """Delegates to pack_and_ask's shared dedicated-profile binding proof.
+
+    Same contract as the review engine: the CDP endpoint must be bound to the
+    dedicated insane-review browser profile via the legacy DevToolsActivePort
+    receipt (older Chromium) or the listener-process --user-data-dir argv
+    (Chrome 136+, which no longer writes the receipt).
+    """
     try:
-        canonical = profile.resolve(strict=True)
-        relative = canonical.relative_to(home)
-        uid = os.getuid() if hasattr(os, "getuid") else None
-        current = home
-        for part in relative.parts:
-            current = current / part
-            details = current.lstat()
-            if current.is_symlink() or (uid is not None and details.st_uid != uid):
-                return False
-            if os.name != "nt" and stat.S_IMODE(details.st_mode) & 0o077:
-                return False
-        receipt = canonical / "DevToolsActivePort"
-        s = receipt.lstat()
-        if (
-            receipt.is_symlink()
-            or not stat.S_ISREG(s.st_mode)
-            or (uid is not None and s.st_uid != uid)
-            or (os.name != "nt" and stat.S_IMODE(s.st_mode) & 0o077)
-            or s.st_size > 4096
-        ):
-            return False
-        lines = receipt.read_text(encoding="utf-8").splitlines()
-        if len(lines) < 2 or lines[0].strip() != str(port):
-            return False
-        expected = lines[1].strip()
-        actual = urllib.parse.urlparse(str(info["webSocketDebuggerUrl"]))
-        return expected.startswith("/devtools/browser/") and actual.path == expected
-    except (OSError, UnicodeError, KeyError):
+        from pack_and_ask import cdp_binds_dedicated_profile
+        return cdp_binds_dedicated_profile(port, info)
+    except Exception:
         return False
 
 
@@ -424,7 +397,7 @@ def main() -> int:
             die("gpt-image currently requires POSIX deadline enforcement.")
         info = cdp_info(args.cdp_port)
         if not dedicated_profile_ok(args.cdp_port, info):
-            die(f"CDP {args.cdp_port} does not match the dedicated insane-review browser profile receipt.")
+            die(f"CDP {args.cdp_port} does not match the dedicated insane-review browser profile binding proof.")
         if args.check_env:
             if importlib.util.find_spec("playwright") is None: die("Python Playwright is required; this tool never installs it.")
             print("STATUS playwright=ok cdp=ok profile=ok")

@@ -72,7 +72,7 @@ PY
    ```bash
    python3 "$GI" --check-env
    ```
-   It requires POSIX deadline enforcement, Python Playwright, and a real local Chrome/Chromium CDP endpoint. It also requires the dedicated-profile `DevToolsActivePort` receipt. The user must manually start/login the dedicated browser; do not install, launch, or log in for them.
+   It requires POSIX deadline enforcement, Python Playwright, and a real local Chrome/Chromium CDP endpoint. It also requires the endpoint to be proven bound to the dedicated profile — via the listener process's `--user-data-dir` argv (Chrome 136+, which no longer writes a receipt) or the legacy `DevToolsActivePort` receipt when present. The user must manually start/login the dedicated browser; do not install, launch, or log in for them.
 3. Generate only after a successful check:
    ```bash
    python3 "$GI" --output-dir .gpt-image -- "$ARGUMENTS"
