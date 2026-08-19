@@ -160,7 +160,9 @@ try:
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9333", "--user-data-dir=" + me], "chrome")]
     print("wrong port rejected:", module._cdp_matches_dedicated_profile())
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port", "9222", "--user-data-dir", me], "google-chrome")]
-    print("space-form flags bind:", module._cdp_matches_dedicated_profile())
+    print("space form rejected (Chromium takes = only):", module._cdp_matches_dedicated_profile())
+    module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--", "--user-data-dir=" + me], "chrome")]
+    print("post-dashinator rejected:", module._cdp_matches_dedicated_profile())
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--user-data-dir=/tmp/first", "--remote-debugging-port=9222", "--user-data-dir=" + me], "chrome")]
     print("last flag value wins:", module._cdp_matches_dedicated_profile())
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + me, "--user-data-dir=/tmp/last"], "chrome")]
@@ -169,8 +171,6 @@ try:
     print("relative path rejected:", module._cdp_matches_dedicated_profile())
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + me, "--user-data-dir"], "chrome")]
     print("trailing valueless flag rejected:", module._cdp_matches_dedicated_profile())
-    module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir", "--no-first-run"], "chrome")]
-    print("dash-following space form rejected:", module._cdp_matches_dedicated_profile())
     os.chmod(module.BROWSER_PROFILE_DIR, 0o755)
     module._cdp_listener_cmdlines = lambda port=9222: [(["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + me], "chrome")]
     print("loose profile dir rejected:", module._cdp_matches_dedicated_profile())
@@ -187,12 +187,12 @@ finally:
       "non-chromium exe rejected: False",
       "wrong profile rejected: False",
       "wrong port rejected: False",
-      "space-form flags bind: True",
+      "space form rejected (Chromium takes = only): False",
+      "post-dashinator rejected: False",
       "last flag value wins: True",
       "trailing conflicting flag rejected: False",
       "relative path rejected: False",
       "trailing valueless flag rejected: False",
-      "dash-following space form rejected: False",
       "loose profile dir rejected: False",
     ]);
   });

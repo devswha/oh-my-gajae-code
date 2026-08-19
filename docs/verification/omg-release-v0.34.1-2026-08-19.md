@@ -100,5 +100,22 @@ Patch release: insane-review / gpt-image CDP 엔진이 Chrome 136+/145+ 환경�
   Windows 파서는 부분 파서임을 명시(이상 형태는 절대경로 검증에서 자동 거부).
   재검증: bun 146/146(값 없는 후행/'-' 후속 형태 거부 케이스 추가), 라이브
   바인딩 True, gpt-image --check-env 통과.
+- 2026-08-19 저녁 UI 회전(추가): 당일 메뉴가 3회 이상 바뀜 — 'Pro' 라디오가
+  'Light…최대/울트라'로, '고급' 토글 행이 사라지고 모델/추론 행 기본 노출 +
+  '기본값으로 재설정' 항목 추가, 모든 포인터 기반 라디오 조작(normal/force/좌표)
+  무시. 대응: `EFFORT_ALIASES`(pro → pro/최대/울트라/ultra/max 그룹, 검증 전
+  지점 후보 수용), 라디오는 접근성 role locator + `dispatch_event('click')`
+  (유일하게 동작하는 경로), 모델/추론 행이 이미 보이면 토글 없이 성공, 이미
+  목표 조합이면 조작 생략(fast-path, 행 텍스트로만 검증). 실측: fast-path
+  통과(GPT-5.6 Sol/최대), Terra로 perturb 후 복구·검증 OK, 프롬프트-only
+  풀레인 응답 `LANE-OK-FINAL` 저장. bun 146/146.
+- 3차 재리뷰 판정: REQUEST_CHANGES — 주소 한정 수정 **확인**. 신규: (H) argv
+  파싱이 Chromium과 불일치(값은 '=' 형태만, 값 없는 등장은 부울, '--' 이후
+  파싱 중단 — 공백 형태 수용은 우리 오류), (H) 최종 검증이 행 부재 시
+  selected_model/selected_effort(요청값)로 폴백(fail-open), (R) 별칭 그룹 전부에
+  슬라이더 max 요구. 전부 수정: '=' 형태만·bare 등장 거부·'--' 중단 반영,
+  최종 행 증거 없으면 fail-closed(요청값 폴백 제거), max 요구는 최상위 그룹
+  (pro/max/ultra/최대/울트라)만. 재검증: bun 146/146(공백 형태·'--' 이후 거부
+  케이스로 교체), 라이브 바인딩 True(실제 argv는 '=' 형태),
+  `select_model → (True, 'GPT-5.6 Sol (최대)')`.
 
-- (기록: 릴리스 시점 cross-review 결과 아래에 추가)

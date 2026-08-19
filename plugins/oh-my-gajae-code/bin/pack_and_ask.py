@@ -504,20 +504,20 @@ def _receipt_binds_dedicated_profile(port: int, live_ws_path: str) -> bool:
 
 
 def _argv_flag_last_value(argv: list[str], flag: str) -> tuple[bool, str | None]:
-    """"--flag=VALUE"와 "--flag VALUE"의 **마지막** 값(Chromium 우선순위와 동일).
+    """Chromium 스위치 파싱과 정확히 일치하는 **마지막** '--flag=VALUE' 값.
 
-    반환: (ok, value). ok=False면 그 argv는 해석이 모호하므로 증명으로 쓰지
-    않는다(fail-closed) — 값 없는 등장(공백 형태 뒤 토큰 부재/'-' 시작 토큰)은
-    Chromium이 부울 스위치로 처리할 수 있어 우리가 재현할 수 없다. 우리 런처는
-    '=' 형태만 생성한다.
+    반환: (ok, value). ok=False면 그 argv는 증명으로 쓰지 않는다(fail-closed).
+    Chromium은 (1) 값을 '=' 형태만 받는다(공백 형태는 부울 스위치+별도 인자),
+    (2) 값 없는 등장은 부울 스위치다, (3) '--' 이후는 인자 영역이라 파싱을
+    멈춘다. 우리 런처도 '=' 형태만 생성한다.
     """
     value = None
-    for i, token in enumerate(argv):
+    for token in argv:
+        if token == "--":
+            break
         if token == flag:
-            if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
-                return False, None
-            value = argv[i + 1]
-        elif token.startswith(flag + "="):
+            return False, None
+        if token.startswith(flag + "="):
             value = token[len(flag) + 1:]
     return True, value
 
@@ -1140,7 +1140,8 @@ def _slider_effort_verified(page, want_l: str) -> bool:
         if slider is None:
             return False
         at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
-        return _exact_effort_pill(page, want_l) is not None and (want_l.strip().casefold() not in EFFORT_ALIASES or at_maximum)
+        is_top = want_l.strip().casefold() in {"pro", "max", "ultra", "최대", "울트라"}
+        return _exact_effort_pill(page, want_l) is not None and (not is_top or at_maximum)
     except Exception:
         return False
 
@@ -1339,9 +1340,13 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     model_row = _find_menu_row(page, ("모델", "model"))
     effort_row = _find_menu_row(page, ("추론", "reasoning"))
     model_text = _menu_text(model_row) if model_row else ""
+    if not model_text.strip():
+        return False, None
     effort_text = _menu_text(effort_row) if effort_row else ""
-    verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
-    verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
+    if not effort_text.strip():
+        return False, None  # 최종 행 증거 없음 — 요청값 폴백 금지(fail-closed)
+    verified_model = model_text.splitlines()[-1].strip()
+    verified_effort = effort_text.splitlines()[-1].strip()
     wanted_efforts = {c.casefold() for c in _effort_candidates(want)}
     effort_ok = (_slider_effort_verified(page, want.strip().casefold())
                  if slider_used else verified_effort.casefold() in wanted_efforts)
