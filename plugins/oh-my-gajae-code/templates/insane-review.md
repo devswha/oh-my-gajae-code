@@ -121,13 +121,15 @@ gjc `ask` 도구로 물어보고 → 선택대로 gjc가 실행 → `--ensure-en
    options = 후보 디렉토리들 + "프로젝트 전체" + "질문만(코드 없이)".
 2. **타겟 선별(완전한 집합은 네 판단)** — 코드면 의도에 직결된 **모듈/디렉토리를 통째로**(`--target <dir>`, 풀코드).
    더 넓으면 import·호출자·테스트·설정까지 닫는다(gjc `search`/`lsp`). **`--compress` 금지**(본문 누락). 순수 질문이면 생략.
-3. **실행** (정확성 리뷰는 풀코드 + 모델검증):
+3. **실행** (정확성 리뷰는 풀코드 + 모델검증) — **백그라운드 + 중계가 기본**(SKILL §3.2):
    ```bash
-   python3 "$IR" \
+   mkdir -p .insane-review && python3 -u "$IR" \
      --target <repo_or_dir> --include "<관련 파일 글롭 또는 생략=전체>" \
-     --model pro --require-model "GPT-5.6 Sol" \
-     --prompt "<의도 담은 질문 — 판정마다 파일:라인·코드조각 인용 강제>"
+     --model pro --require-model "GPT-5.6 Sol" --stream \
+     --prompt "<의도 담은 질문 — 판정마다 파일:라인·코드조각 인용 강제>" \
+     > .insane-review/live.log 2>&1 &
    ```
+   - 리뷰는 수 분 걸린다 — 세션이 멈춘 것처럼 보이게 두지 마라. 15~30초 간격으로 로그 증분을 `read`로 읽어 **진행 상황(모델 검증·`Ns | 생성중`)과 `── 실시간 응답 ──` 본문 조각을 그대로 중계**하고, `[완료]`가 나오면 회수로 간다.
    - 응답이 오래 걸려도 되면 그대로(완전추론). 시간을 bound하려면 `--force-answer-after <초>`. 단독 리뷰는 보통 끄고, council은 켜서 cap.
 4. **누락 확인** — 출력의 `📦 패킹 포함 N개 파일`이 의도한 완전한 집합을 담았는지 확인(빠지면 SKILL §3.5 원인 제거).
 5. **회수·반영** — 현재 프로젝트의 **`.insane-review/response_*.md`**를 gjc `read`로 읽고, **GPT-5.6 Sol Pro의 의견임을 명시**해

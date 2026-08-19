@@ -39,6 +39,14 @@ if str(BIN_DIR) not in sys.path:
     sys.path.insert(0, str(BIN_DIR))
 from cdp_lock import CdpLease
 
+# 파이프/리다이렉트로 실행해도 진행 로그가 즉시 흘러가게 라인 버퍼링(백그라운드
+# 실행 + 로그 폴링 중계 패턴에서 필수). 증분 스트림 출력은 개별 print에서 flush.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
 # ---- 선택 의존성(라이브 모드에서만 필요) ----
 try:
     import pyperclip
@@ -1157,15 +1165,21 @@ def _slider_effort_verified(page, want_l: str) -> bool:
 
 
 def _open_switcher(page):
-    for sel in MODEL_SWITCHER_SELECTORS:
-        try:
-            el = page.query_selector(sel)
-            if el:
-                el.click()
-                time.sleep(1.2)
-                return True
-        except Exception:
-            continue
+    # 컴포저 pill은 하이드레이션 중 aria-haspopup이 늦게 붙는다(실측: pill 클래스
+    # 조회는 잡히는데 aria-haspopup 셀렉터만 빗나감 → 재시도 소진). 광범위 폴백
+    # 셀렉터 + 짧은 재시도로 하이드레이션을 기다린다.
+    selectors = MODEL_SWITCHER_SELECTORS + ['button.__composer-pill']
+    for _attempt in range(4):
+        for sel in selectors:
+            try:
+                el = page.query_selector(sel)
+                if el:
+                    el.click()
+                    time.sleep(1.2)
+                    return True
+            except Exception:
+                continue
+        time.sleep(1.0)
     return False
 
 
@@ -1775,14 +1789,18 @@ def click_answer_now(page) -> bool:
 
 
 def wait_for_turn_response(page, force_after=None, max_wait=None,
-                           base_user: int = 0, base_assistant: int = 0, base_copy: int = 0) -> tuple[str, str]:
+                           base_user: int = 0, base_assistant: int = 0, base_copy: int = 0,
+                           stream: bool = False) -> tuple[str, str]:
     """새 user 턴(전송 전 기준개수 대비 증가) 기준 응답 회수.
     base_user/base_assistant: 전송 직전의 메시지 수 — 이전 응답을 성공으로 오인하지 않도록 결속.
+    stream=True면 생성 중인 assistant 텍스트를 stdout에 증분 출력(완료 판정에는 영향 없음).
     반환: (status, text) — status ∈ {'ok','timeout','not_sent'}."""
     mw = max_wait if max_wait else MAX_WAIT_SECS
     start = time.monotonic()
     last_status = 0
     force_tries = 0
+    streamed = ""      # 이미 스트리밍 출력한 접두부
+    stream_header = False
 
     # 1) 우리 user 턴이 '새로' 떴는지 확인(전송 전 기준보다 증가). 안 떴으면 not_sent → 호출자가 재전송
     sent = False
@@ -1818,6 +1836,18 @@ def wait_for_turn_response(page, force_after=None, max_wait=None,
             last_status = elapsed
 
         if elapsed < MIN_WAIT_SECS or is_streaming(page):
+            # --stream: 생성 중인 텍스트를 증분 출력(완료 판정과 무관한 중계 전용).
+            # 재렌더로 접두가 바뀌면 조용히 재동기화(중복 출력 방지).
+            if stream:
+                live = last_assistant_text(page)
+                if live.startswith(streamed) and live != streamed:
+                    if not stream_header:
+                        print("    ── 실시간 응답(생성 중) ──")
+                        stream_header = True
+                    print(live[len(streamed):], end="", flush=True)
+                    streamed = live
+                elif not live.startswith(streamed):
+                    streamed = live
             stable_since = None
             time.sleep(2)
             continue
@@ -2076,6 +2106,8 @@ def main():
     ap.add_argument("--council", action="store_true",
                     help="agent-council 멤버 모드: 로그는 stderr, 응답만 stdout")
     ap.add_argument("--retries", type=int, default=1)
+    ap.add_argument("--stream", action="store_true",
+                    help="응답 생성 중인 텍스트를 stdout에 실시간 증분 출력(파이프/로그 중계용)")
     ap.add_argument("prompt_args", nargs="*", help="프롬프트(위치인자 — council 호환)")
     args = ap.parse_args()
 
@@ -2299,7 +2331,7 @@ def main():
                     status, text = wait_for_turn_response(page, force_after=args.force_answer_after,
                                                           max_wait=args.max_wait,
                                                           base_user=base_user, base_assistant=base_assistant,
-                                                          base_copy=base_copy)
+                                                          base_copy=base_copy, stream=args.stream)
                     if status == "not_sent":
                         print("  ⚠️  user 턴 미생성(전송 안 됨) → 재시도")
                         continue
