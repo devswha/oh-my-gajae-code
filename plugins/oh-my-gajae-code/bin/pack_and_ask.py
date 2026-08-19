@@ -1061,7 +1061,27 @@ MODEL_SWITCHER_SELECTORS = [
     'button[data-testid="model-switcher-dropdown-button"]',
     'button[aria-label*="model" i]',
 ]
-# 실측: pill 클릭 → menuitemradio(즉시/중간/높음/매우 높음/Pro=추론단계) + menuitem("GPT-5.6"=모델명)
+# ChatGPT는 추론단계 라벨 체계를 자주 바꾼다(2026-08-19 하루에 '즉시…Pro' →
+# 'Light…최대/울트라'까지 관측). --model 값은 '의미'를 가리키고 엔진은 아래
+# 별칭 후보 중 실제 존재하는 라벨을 aria-checked 실측으로 선택/검증한다.
+EFFORT_ALIASES = {
+    "pro": ("pro", "최대", "울트라", "ultra", "max"),
+    "max": ("max", "최대", "pro", "울트라", "ultra"),
+    "ultra": ("ultra", "울트라", "pro", "최대", "max"),
+    "high": ("high", "높음"),
+    "medium": ("medium", "중간"),
+    "low": ("low", "light", "낮음"),
+    "light": ("light", "low", "낮음"),
+}
+
+
+def _effort_candidates(want: str) -> tuple[str, ...]:
+    key = want.strip().casefold()
+    if key in EFFORT_ALIASES:
+        return EFFORT_ALIASES[key]
+    return (want.strip(),)
+
+
 EFFORT_ITEM_SELECTORS = ['[role="menuitemradio"]', '[role="menuitem"]', '[role="option"]']
 
 
@@ -1102,11 +1122,14 @@ def _drive_effort_slider(page, slider, want_l: str) -> str | None:
 
 
 def _exact_effort_pill(page, want_l: str) -> str | None:
-    """Return an exact effort label, never a model or unrelated Pro-containing pill."""
+    """Return an exact effort label, never a model or unrelated Pro-containing pill.
+
+    want_l이 별칭 그룹('pro' 등)이면 그 후보 라벨들도 정확 매칭한다."""
+    wanted = {c.casefold() for c in _effort_candidates(want_l)}
     for pill in read_model_pills(page):
         lines = [line.strip() for line in pill.splitlines() if line.strip()]
         for line in lines:
-            if line.casefold() == want_l.casefold():
+            if line.casefold() in wanted:
                 return line[:40]
     return None
 
@@ -1117,7 +1140,7 @@ def _slider_effort_verified(page, want_l: str) -> bool:
         if slider is None:
             return False
         at_maximum = slider.get_attribute("aria-valuenow") == slider.get_attribute("aria-valuemax")
-        return _exact_effort_pill(page, want_l) is not None and (want_l != "pro" or at_maximum)
+        return _exact_effort_pill(page, want_l) is not None and (want_l.strip().casefold() not in EFFORT_ALIASES or at_maximum)
     except Exception:
         return False
 
@@ -1157,8 +1180,13 @@ def _ensure_switcher_menu(page) -> bool:
 
 
 def _expand_advanced_options(page) -> bool:
-    """Open the localized advanced view when the current ChatGPT UX hides it."""
+    """Open the localized advanced view when the current ChatGPT UX hides it.
+
+    2026-08-19 이후 UI는 '고급' 토글 없이 모델/추론 행이 기본으로 보인다 — 그 경우
+    토글 탐색 없이 이미 성공으로 간주한다(메뉴 형태가 자주 바뀌는 대응)."""
     try:
+        if _find_menu_row(page, ("모델", "model")) and _find_menu_row(page, ("추론", "reasoning")):
+            return True
         for row in page.query_selector_all('[role="menuitem"]'):
             label = _menu_text(row).lower()
             expanded = row.get_attribute("aria-expanded")
@@ -1183,9 +1211,9 @@ def _find_menu_row(page, labels: tuple[str, ...]):
 
 def _click_menu_radio(page, target: str) -> str | None:
     target_l = target.lower()
-    # 2026-08 실측: 서브메뉴 라디오는 (1) React 재마운트로 ElementHandle이 떨어지고
-    # (2) 포털 재렌더로 actionability 대기(stable)가 영원히 안 걸린다. 접근성 role
-    # 매칭 + force 클릭(전달 즉시 서브메뉴가 닫히는 것이 정상 동작)으로 안정화.
+    # 2026-08 실측: 서브메뉴 라디오는 포털 재렌더로 (1) ElementHandle 탈착,
+    # (2) actionability 대기(stable) 영구 불완료, (3) 심지어 force 클릭도 무시된다.
+    # 접근성 role 매칭 + dispatch_event('click') 합성 이벤트가 유일하게 안정 동작.
     try:
         loc = page.get_by_role("menuitemradio", name=target, exact=True)
         if loc.count() == 0:
@@ -1193,7 +1221,7 @@ def _click_menu_radio(page, target: str) -> str | None:
         if loc.count() == 0:
             loc = page.get_by_role("menuitemradio", name=target)
         if loc.count() > 0:
-            loc.first.click(force=True, timeout=5000)
+            loc.first.dispatch_event("click")
             time.sleep(0.8)
             return target[:40]
     except Exception:
@@ -1236,21 +1264,22 @@ def _click_menu_row(page, labels: tuple[str, ...]) -> bool:
     return False
 
 
+
 def _radio_effort_actually_checked(page, want: str) -> bool:
     """클릭한 추론 라디오가 실제로 aria-checked=true가 됐는지(2026-08 UI는 클릭이
-    조용히 무시될 수 있다 — 반환값만으로 판단하지 않는다)."""
+    조용히 무시될 수 있다 — 반환값만으로 판단하지 않는다). 별칭 후보도 수용."""
+    wanted = {c.casefold() for c in _effort_candidates(want)}
     try:
         for item in page.query_selector_all('[role="menuitemradio"], [role="option"]'):
             if item.get_attribute("aria-checked") != "true":
                 continue
             lines = [line.strip() for line in _menu_text(item).splitlines() if line.strip()]
             candidate = lines[-1] if lines else ""
-            if candidate.casefold() == want.strip().casefold():
+            if candidate.casefold() in wanted:
                 return True
     except Exception:
         pass
     return False
-
 
 def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
     """Select Model and Reasoning effort from the current Advanced menu UX."""
@@ -1260,6 +1289,19 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     effort_row = _find_menu_row(page, ("추론", "reasoning"))
     if not model_row or not effort_row:
         return None
+    wanted_efforts = {c.casefold() for c in _effort_candidates(want)}
+    # fast-path: 이미 목표 조합이면 조작 없이 행 텍스트로만 검증 통과(2026-08 UI는
+    # 조작 클릭이 불안정하고, 사용자가 수동 설정해 둔 상태가 흔하다).
+    current_model = _menu_text(model_row).splitlines()[-1].strip()
+    current_effort = _menu_text(effort_row).splitlines()[-1].strip()
+    if current_model.casefold() == require_model.strip().casefold() and current_effort.casefold() in wanted_efforts:
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        result_name = f"{current_model} ({current_effort})"
+        print(f"  ✓ 이미 목표 조합: model={current_model}, effort={current_effort} → 조작 생략")
+        return True, result_name
     if not _click_menu_row(page, ("모델", "model")):
         return False, None
     time.sleep(0.8)
@@ -1268,15 +1310,20 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
         return False, None
     if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
         return False, None
-    # 추론 강도: 2026-08 UI는 (1) '추론 강도' 서브메뉴 라디오와 (2) 메뉴 최상단
-    # '성능' 슬라이더(0..4 = 즉시/중간/높음/매우 높음/Pro)가 함께 있다. 라디오 클릭이
-    # 조용히 무시되는 표현이므로, 라디오 시도 → 실제 checked 확인 → 아니면 슬라이더.
+    # 추론 강도: 라벨 체계가 자주 바뀐다(2026-08: 'Pro' → '최대/울트라' 관측).
+    # 별칭 후보 순서로 라디오 시도 → 실제 checked 확인 → 아니면 슬라이더 폴백.
+    effort_candidates = _effort_candidates(want)
     selected_effort = None
     slider_used = False
     if _click_menu_row(page, ("추론", "reasoning")):
         time.sleep(0.8)
-        if _click_menu_radio(page, want) is not None and _radio_effort_actually_checked(page, want):
-            selected_effort = want
+        for cand in effort_candidates:
+            if _click_menu_radio(page, cand) is not None and _radio_effort_actually_checked(page, want):
+                selected_effort = cand
+                break
+            if not _ensure_switcher_menu(page) or not _click_menu_row(page, ("추론", "reasoning")):
+                break
+            time.sleep(0.6)
     if selected_effort is None:
         if not _ensure_switcher_menu(page):
             return False, None
@@ -1295,8 +1342,9 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     effort_text = _menu_text(effort_row) if effort_row else ""
     verified_model = model_text.splitlines()[-1].strip() if model_text else selected_model
     verified_effort = effort_text.splitlines()[-1].strip() if effort_text else selected_effort
+    wanted_efforts = {c.casefold() for c in _effort_candidates(want)}
     effort_ok = (_slider_effort_verified(page, want.strip().casefold())
-                 if slider_used else verified_effort.casefold() == want.strip().casefold())
+                 if slider_used else verified_effort.casefold() in wanted_efforts)
     verified = verified_model.casefold() == require_model.strip().casefold() and effort_ok
     try:
         page.keyboard.press("Escape")
