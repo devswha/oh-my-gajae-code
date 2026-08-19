@@ -55,7 +55,9 @@ Patch release: insane-review / gpt-image CDP 엔진이 Chrome 136+/145+ 환경�
 - 라이브 풀레인 ① 프롬프트-only: `--model pro --require-model "GPT-5.6 Sol"` →
   `✓ CDP 브라우저 확인` → `✓ 최종 모델 검증: model=GPT-5.6 Sol, effort=Pro → OK`
   → 응답 `"LANE-OK"` 저장(`response_prompt_20260819_212244_*.md`, mode 0600).
-- 라이브 풀레인 ② `--target`(repomix 패킹+파일첨부+모델검증+회수): 결과 본문 하단 기록.
+- 라이브 풀레인 ② `--target`(repomix 패킹+파일첨부+모델검증+회수): 팩 ~404 tokens
+  첨부 확인 → `GPT-5.6 Sol (Pro)` 응답 `"calc.py defines add(a, b) … (calc.py:1–2)"`
+  저장(`response_ir-pack-target_20260819_212525_*.md`).
 - `gpt_image_web.py --check-env` — `STATUS playwright=ok cdp=ok profile=ok`
   (v0.34.0에서 이 지점이 fail-closed였음).
 - 음성: 다른 프로필 headless Chrome(포트 9333) 바인딩 거부, argv 포트/프로필 불일치
