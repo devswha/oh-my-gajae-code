@@ -21,12 +21,14 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import socket
 import stat
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime
@@ -451,31 +453,219 @@ def _prepare_browser_profile() -> bool:
         return False
 
 
-def _cdp_matches_dedicated_profile() -> bool:
-    """Bind the live CDP endpoint to Chrome's private profile receipt."""
+def _fetch_cdp_info(port: int = CDP_PORT) -> dict | None:
+    """/json/version 조회(best-effort). 실패 시 None."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=4) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _cdp_info_shape_ok(info: dict, port: int) -> tuple[bool, str]:
+    """로컬 루프백 CDP 브라우저 엔드포인트 형태인지 → (판정, live ws path)."""
+    try:
+        browser = str(info.get("Browser", ""))
+        if not any(k in browser for k in ("Chrome", "Chromium", "Comet", "HeadlessChrome", "Edg")):
+            return False, ""
+        ws = urllib.parse.urlparse(str(info.get("webSocketDebuggerUrl", "")))
+        ok = (
+            ws.hostname in {"127.0.0.1", "localhost"}
+            and ws.port == port
+            and ws.path.startswith("/devtools/browser/")
+        )
+        return ok, (ws.path if ok else "")
+    except (ValueError, AttributeError):
+        return False, ""
+
+
+def _receipt_binds_dedicated_profile(port: int, live_ws_path: str) -> bool:
+    """구버전 Chromium 증거 — user-data-dir에 남는 DevToolsActivePort 영수증(있을 때만).
+
+    Chrome 136+는 --remote-debugging-port로 띄워도 이 파일을 더 이상 남기지 않는다
+    (2026-08-19 실측: Chrome 145.0.7632.45, headless/GUI 동일). 그때는 아래
+    리스너-argv 바인딩이 증명을 대신한다. 영수증 파일은 0700 프로필 디렉토리
+    안쪽에 있으므로 파일 자체 모드 대신 소유자/형태만 검증한다.
+    """
     receipt = BROWSER_PROFILE_DIR / "DevToolsActivePort"
     try:
         receipt_stat = receipt.lstat()
         if receipt.is_symlink() or not receipt_stat.st_mode or not stat.S_ISREG(receipt_stat.st_mode):
             return False
-        if (
-            (hasattr(os, "geteuid") and receipt_stat.st_uid != os.geteuid())
-            or (os.name != "nt" and stat.S_IMODE(receipt_stat.st_mode) & 0o077)
-            or receipt_stat.st_size > 4096
-        ):
+        if (hasattr(os, "geteuid") and receipt_stat.st_uid != os.geteuid()) or receipt_stat.st_size > 4096:
             return False
         lines = receipt.read_text(encoding="utf-8").splitlines()
-        if len(lines) < 2 or lines[0].strip() != str(CDP_PORT):
+        if len(lines) < 2 or lines[0].strip() != str(port):
             return False
         expected_path = lines[1].strip()
-        if not expected_path.startswith("/devtools/browser/"):
-            return False
-        info = json.load(urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=3))
-        from urllib.parse import urlparse
-        actual = urlparse(info.get("webSocketDebuggerUrl", ""))
-        return actual.hostname in {"127.0.0.1", "localhost"} and actual.port == CDP_PORT and actual.path == expected_path
-    except (OSError, UnicodeError, ValueError, KeyError):
+        return expected_path.startswith("/devtools/browser/") and expected_path == live_ws_path
+    except (OSError, UnicodeError, ValueError):
         return False
+
+
+def _argv_flag_values(argv: list[str], flag: str) -> list[str]:
+    """"--flag=VALUE"와 "--flag VALUE" 두 형태의 값을 모두 수집."""
+    values = []
+    for i, token in enumerate(argv):
+        if token == flag and i + 1 < len(argv):
+            values.append(argv[i + 1])
+        elif token.startswith(flag + "="):
+            values.append(token[len(flag) + 1:])
+    return values
+
+
+def _argv_binds_dedicated_profile(argv: list[str], port: int = CDP_PORT) -> bool:
+    """argv가 '전용 user-data-dir + 지정 디버그 포트'로 실행된 크로미움인지."""
+    if str(port) not in _argv_flag_values(argv, "--remote-debugging-port"):
+        return False
+    for value in _argv_flag_values(argv, "--user-data-dir"):
+        try:
+            if Path(value).expanduser().resolve(strict=False) == BROWSER_PROFILE_DIR:
+                return True
+        except (OSError, ValueError, RuntimeError):
+            continue
+    return False
+
+
+def _linux_listener_cmdlines(port: int) -> list[list[str]]:
+    """/proc만으로 port를 LISTEN하는 프로세스의 argv 전체 (서브프로세스 없음)."""
+    inodes: set[str] = set()
+    wanted = f"{port:04X}"
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or fields[3] != "0A":  # 0A = LISTEN
+                continue
+            if fields[1].rsplit(":", 1)[-1].upper() != wanted:
+                continue
+            inodes.add(fields[9])
+    if not inodes:
+        return []
+    wanted_sockets = {f"socket:[{inode}]" for inode in inodes}
+    cmdlines: list[list[str]] = []
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            owns = False
+            for fd in (proc / "fd").iterdir():
+                try:
+                    if os.readlink(fd) in wanted_sockets:
+                        owns = True
+                        break
+                except OSError:
+                    continue
+            if not owns:
+                continue
+            raw = (proc / "cmdline").read_bytes()
+        except OSError:
+            continue
+        argv = [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+        # Chrome 145+는 메인 프로세스 cmdline을 공백 결합 단일 문자열로 재작성한다
+        # (NUL 1개만 남음). 그 형태를 표준 argv로 정규화한다.
+        if len(argv) == 1 and " " in argv[0]:
+            try:
+                argv = shlex.split(argv[0])
+            except ValueError:
+                continue
+        if argv:
+            cmdlines.append(argv)
+    return cmdlines
+
+
+def _macos_listener_cmdlines(port: int) -> list[list[str]]:
+    out = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-F", "p"],
+        capture_output=True, text=True, timeout=5,
+    ).stdout
+    cmdlines: list[list[str]] = []
+    for line in out.splitlines():
+        if not line.startswith("p") or not line[1:].strip().isdigit():
+            continue
+        try:
+            ps = subprocess.run(
+                ["ps", "-o", "command=", "-p", line[1:].strip()],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if ps:
+            cmdlines.append(shlex.split(ps))
+    return cmdlines
+
+
+def _windows_listener_cmdlines(port: int) -> list[list[str]]:
+    out = subprocess.run(["netstat", "-aon"], capture_output=True, text=True, timeout=10).stdout
+    pids = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[3] == "LISTENING" and parts[1].rsplit(":", 1)[-1] == str(port):
+            if parts[4].isdigit():
+                pids.add(parts[4])
+    cmdlines: list[list[str]] = []
+    for pid in sorted(pids):
+        try:
+            ps = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if ps:
+            cmdlines.append(shlex.split(ps))
+    return cmdlines
+
+
+def _cdp_listener_cmdlines(port: int = CDP_PORT) -> list[list[str]]:
+    """port를 LISTEN 중인 프로세스의 argv 목록(best-effort, 실패 시 []).
+
+    Chrome 136+/145+는 영수증을 남기지 않으므로, '포트를 점유한 프로세스 자체의
+    실행인자'로 전용 프로필을 확정한다(커널 수준 증거).
+    """
+    try:
+        system = platform.system()
+        if system == "Linux":
+            return _linux_listener_cmdlines(port)
+        if system == "Darwin":
+            return _macos_listener_cmdlines(port)
+        if system == "Windows":
+            return _windows_listener_cmdlines(port)
+    except Exception:
+        pass
+    return []
+
+
+def _cdp_matches_dedicated_profile() -> bool:
+    """Bind the live CDP endpoint to the dedicated insane-review browser profile.
+
+    증거는 2중: (1) 구버전 영수증(DevToolsActivePort), (2) 포트 리스너 프로세스
+    argv의 --user-data-dir/--remote-debugging-port 바인딩(Chrome 136+). 어느 하나가
+    전용 프로필을 확정하면 통과, 둘 다 아니면 fail-closed.
+    """
+    info = _fetch_cdp_info()
+    if info is None:
+        return False
+    shape_ok, live_ws_path = _cdp_info_shape_ok(info, CDP_PORT)
+    if not shape_ok:
+        return False
+    if _receipt_binds_dedicated_profile(CDP_PORT, live_ws_path):
+        return True
+    return any(_argv_binds_dedicated_profile(argv) for argv in _cdp_listener_cmdlines())
+
+
+def cdp_binds_dedicated_profile(port: int, info: dict) -> bool:
+    """형제 CLI(gpt_image_web)용 공개 바인딩 증명 — 동일 전용 프로필 계약."""
+    shape_ok, live_ws_path = _cdp_info_shape_ok(info, port)
+    if not shape_ok:
+        return False
+    if _receipt_binds_dedicated_profile(port, live_ws_path):
+        return True
+    return any(_argv_binds_dedicated_profile(argv, port) for argv in _cdp_listener_cmdlines(port))
 
 
 def launch_browser_exe(path: str) -> bool:
@@ -598,9 +788,13 @@ def check_env(do_install: bool = False) -> int:
             issues.append((f"python {mod} 없음", f"pip install {pip} (또는 --install)"))
             deps_ok = False
 
-    if is_port_open(CDP_PORT) and cdp_browser_ok():
+    if is_port_open(CDP_PORT) and cdp_browser_ok() and _cdp_matches_dedicated_profile():
         browser_state = "ok"
-        ok.append(f"CDP 브라우저({CDP_PORT}) 확인")
+        ok.append(f"CDP 브라우저({CDP_PORT}) 확인 (전용 프로필 바인딩 OK)")
+    elif is_port_open(CDP_PORT) and cdp_browser_ok():
+        browser_state = "wrong"
+        issues.append((f"port {CDP_PORT}은 CDP 브라우저이나 전용 프로필 바인딩 실패",
+                       "다른 프로필/다른 프로세스가 포트를 쓰고 있음 — 종료 후 --launch-browser로 전용 프로필 실행"))
     elif is_port_open(CDP_PORT):
         browser_state = "wrong"
         issues.append((f"port {CDP_PORT}이 CDP 브라우저 아님", "다른 프로세스 종료 후 --launch-browser로 전용 프로필 실행"))
@@ -885,21 +1079,73 @@ def _find_menu_row(page, labels: tuple[str, ...]):
 
 def _click_menu_radio(page, target: str) -> str | None:
     target_l = target.lower()
+    # 2026-08 실측: 서브메뉴 라디오는 (1) React 재마운트로 ElementHandle이 떨어지고
+    # (2) 포털 재렌더로 actionability 대기(stable)가 영원히 안 걸린다. 접근성 role
+    # 매칭 + force 클릭(전달 즉시 서브메뉴가 닫히는 것이 정상 동작)으로 안정화.
     try:
-        candidates = page.query_selector_all('[role="menuitemradio"], [role="option"]')
-        for exact in (True, False):
-            for item in candidates:
-                text = _menu_text(item).strip()
-                lines = [line.strip() for line in text.splitlines() if line.strip()]
-                candidate = lines[-1] if lines else text
-                matched = candidate.lower() == target_l if exact else target_l in text.lower()
-                if matched:
-                    item.click()
-                    time.sleep(0.8)
-                    return candidate[:40]
+        loc = page.get_by_role("menuitemradio", name=target, exact=True)
+        if loc.count() == 0:
+            loc = page.get_by_role("option", name=target, exact=True)
+        if loc.count() == 0:
+            loc = page.get_by_role("menuitemradio", name=target)
+        if loc.count() > 0:
+            loc.first.click(force=True, timeout=5000)
+            time.sleep(0.8)
+            return target[:40]
     except Exception:
         pass
+    # 폴백: role 이름 밖의 표현(부분 라벨/개행 포함) — 핸들 재조회 재시도
+    for _attempt in range(2):
+        try:
+            candidates = page.query_selector_all('[role="menuitemradio"], [role="option"]')
+            for exact in (True, False):
+                for item in candidates:
+                    text = _menu_text(item).strip()
+                    lines = [line.strip() for line in text.splitlines() if line.strip()]
+                    candidate = lines[-1] if lines else text
+                    matched = candidate.lower() == target_l if exact else target_l in text.lower()
+                    if matched:
+                        try:
+                            item.click(timeout=5000)
+                        except Exception:
+                            time.sleep(0.4)
+                            break
+                        time.sleep(0.8)
+                        return candidate[:40]
+        except Exception:
+            pass
+        time.sleep(0.3)
     return None
+
+
+def _click_menu_row(page, labels: tuple[str, ...]) -> bool:
+    """메뉴 행(모델/추론 강도) 클릭 — 재마운트로 핸들이 떨어지면 재조회 재시도."""
+    for _attempt in range(3):
+        row = _find_menu_row(page, labels)
+        if row is None:
+            return False
+        try:
+            row.click(force=True, timeout=5000)
+            return True
+        except Exception:
+            time.sleep(0.4)
+    return False
+
+
+def _radio_effort_actually_checked(page, want: str) -> bool:
+    """클릭한 추론 라디오가 실제로 aria-checked=true가 됐는지(2026-08 UI는 클릭이
+    조용히 무시될 수 있다 — 반환값만으로 판단하지 않는다)."""
+    try:
+        for item in page.query_selector_all('[role="menuitemradio"], [role="option"]'):
+            if item.get_attribute("aria-checked") != "true":
+                continue
+            lines = [line.strip() for line in _menu_text(item).splitlines() if line.strip()]
+            candidate = lines[-1] if lines else ""
+            if candidate.casefold() == want.strip().casefold():
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tuple[bool, str | None] | None:
@@ -910,34 +1156,31 @@ def _select_advanced_model_and_effort(page, want: str, require_model: str) -> tu
     effort_row = _find_menu_row(page, ("추론", "reasoning"))
     if not model_row or not effort_row:
         return None
-    try:
-        model_row.click()
-        time.sleep(0.8)
-    except Exception:
+    if not _click_menu_row(page, ("모델", "model")):
         return False, None
+    time.sleep(0.8)
     selected_model = _click_menu_radio(page, require_model)
     if selected_model is None:
         return False, None
     if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
         return False, None
-    effort_row = _find_menu_row(page, ("추론", "reasoning"))
-    if not effort_row:
-        return False, None
-    try:
-        effort_row.click()
-        time.sleep(0.8)
-    except Exception:
-        return False, None
-    selected_effort = _click_menu_radio(page, want)
+    # 추론 강도: 2026-08 UI는 (1) '추론 강도' 서브메뉴 라디오와 (2) 메뉴 최상단
+    # '성능' 슬라이더(0..4 = 즉시/중간/높음/매우 높음/Pro)가 함께 있다. 라디오 클릭이
+    # 조용히 무시되는 표현이므로, 라디오 시도 → 실제 checked 확인 → 아니면 슬라이더.
+    selected_effort = None
     slider_used = False
+    if _click_menu_row(page, ("추론", "reasoning")):
+        time.sleep(0.8)
+        if _click_menu_radio(page, want) is not None and _radio_effort_actually_checked(page, want):
+            selected_effort = want
     if selected_effort is None:
-        try:
-            slider = page.query_selector('[role="slider"]')
-        except Exception:
-            slider = None
-        if slider is not None:
-            selected_effort = _drive_effort_slider(page, slider, want.lower())
-            slider_used = selected_effort is not None
+        if not _ensure_switcher_menu(page):
+            return False, None
+        slider = page.query_selector('[role="slider"]')
+        if slider is None:
+            return False, None
+        selected_effort = _drive_effort_slider(page, slider, want.lower())
+        slider_used = selected_effort is not None
     if selected_effort is None:
         return False, None
     if not _ensure_switcher_menu(page) or not _expand_advanced_options(page):
@@ -1207,12 +1450,22 @@ SEND_BTN_SELECTORS = [
 def put_text(page, message: str):
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     time.sleep(0.3)
-    page.evaluate(
-        """() => { const el = document.querySelector('#prompt-textarea')
-            || document.querySelector('div[contenteditable=\\"true\\"]');
-            if (el) { el.scrollIntoView({block:'center'}); el.focus(); } }"""
-    )
+    el = find_input(page)
+    focused = False
+    if el is not None:
+        try:
+            el.click(force=True)  # 메뉴 조작 뒤 포커스가 pill에 남아 insert_text가
+            focused = True        # 허공에 떨어지는 것을 막는다(실제 클릭으로 진입).
+        except Exception:
+            focused = False
+    if not focused:
+        page.evaluate(
+            """() => { const el = document.querySelector('#prompt-textarea')
+                || document.querySelector('div[contenteditable=\\"true\\"]');
+                if (el) { el.scrollIntoView({block:'center'}); el.focus(); } }"""
+        )
     time.sleep(0.3)
+    clear_composer(page)  # 잔여 draft를 지우고 깨끗한 상태에서 입력(전용 프로필 소유 상태)
     # 크로스플랫폼: OS 클립보드/⌘V(맥 전용) 대신 Playwright 네이티브 insert_text(insertText 이벤트).
     # → mac/win/linux 동일 동작 + 동시 실행 시 클립보드 경합 제거. 실패 시 키 입력 폴백.
     try:
@@ -1251,18 +1504,26 @@ def composer_has_prompt(page, prompt: str) -> bool:
 
 
 def clear_composer(page):
-    """재입력 전 composer를 비운다(중복 입력 방지)."""
-    try:
-        page.evaluate(
-            """() => { const el = document.querySelector('#prompt-textarea')
-                || document.querySelector('div[contenteditable=\\"true\\"]');
-                if (el) { el.focus(); } }"""
-        )
-        page.keyboard.press("Meta+a")
-        page.keyboard.press("Backspace")
-        time.sleep(0.2)
-    except Exception:
-        pass
+    """재입력 전 composer를 비운다(중복 입력 방지).
+
+    select-all은 OS별 단축키를 쓴다 — Linux/Windows에선 Control+a(Meta+a는
+    Super키라 전체선택이 아니었다). 지워졌는지 읽어 확인하고, 안 비었으면 재시도.
+    """
+    select_all = "Meta+a" if platform.system() == "Darwin" else "Control+a"
+    for _attempt in range(2):
+        try:
+            page.evaluate(
+                """() => { const el = document.querySelector('#prompt-textarea')
+                    || document.querySelector('div[contenteditable=\\"true\\"]');
+                    if (el) { el.focus(); } }"""
+            )
+            page.keyboard.press(select_all)
+            page.keyboard.press("Backspace")
+            time.sleep(0.2)
+            if not read_composer_text(page).strip():
+                return
+        except Exception:
+            pass
 
 
 def click_send(page) -> bool:

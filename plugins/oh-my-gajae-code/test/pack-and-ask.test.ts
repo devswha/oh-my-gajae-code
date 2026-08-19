@@ -27,17 +27,27 @@ spec.loader.exec_module(module)
 module.time.sleep = lambda _: None
 
 class Row:
-    def __init__(self, label, text=None, expanded=None):
+    def __init__(self, label, text=None, expanded=None, checked=False):
         self.label = label
         self.text = text if text is not None else label
         self.expanded = expanded
+        self.checked = checked
         self.clicked = False
     def get_attribute(self, name):
         if name == "aria-label": return self.label
         if name == "aria-expanded": return self.expanded
+        if name == "aria-checked": return "true" if self.checked else "false"
         return None
     def inner_text(self): return self.text
-    def click(self): self.clicked = True
+    def click(self, **kwargs):
+        self.clicked = True
+        self.checked = True
+
+class Locator:
+    def __init__(self, items): self.items = items
+    def count(self): return len(self.items)
+    @property
+    def first(self): return self.items[0]
 
 class Keyboard:
     def press(self, key): pass
@@ -55,7 +65,14 @@ class Page:
         return []
     def query_selector(self, selector):
         return object() if selector == '[role="menu"]' else None
-
+    def get_by_role(self, role, name=None, exact=None):
+        items = self.radios
+        if name is not None:
+            if exact:
+                items = [r for r in items if (r.inner_text() or "").strip() == name]
+            else:
+                items = [r for r in items if name in (r.inner_text() or "")]
+        return Locator(items)
 result = module._select_advanced_model_and_effort(Page(), "Pro", ${JSON.stringify(requiredModel)})
 print(repr(result))
 `;
@@ -107,7 +124,7 @@ print(module.launch_browser_exe("/browser"), bool(called))
     expect(result.stdout.trim().split("\n").at(-1)).toBe("False False");
   });
 
-  test("accepts CDP only when Chrome's private profile receipt matches", () => {
+  test("accepts CDP only when the private-profile receipt or listener argv binds", () => {
     const script = `
 import importlib.util
 import io
@@ -118,19 +135,37 @@ spec = importlib.util.spec_from_file_location("pack_and_ask", ${JSON.stringify(e
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BROWSER_PROFILE_DIR = pathlib.Path(tempfile.mkdtemp())
+module.BROWSER_PROFILE_INPUT = module.BROWSER_PROFILE_DIR
 module.os.chmod(module.BROWSER_PROFILE_DIR, 0o700)
-(module.BROWSER_PROFILE_DIR / "DevToolsActivePort").write_text("9222\\n/devtools/browser/owned\\n")
-module.os.chmod(module.BROWSER_PROFILE_DIR / "DevToolsActivePort", 0o600)
-module.urllib.request.urlopen = lambda *_args, **_kwargs: io.BytesIO(json.dumps({
-    "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/owned"
-}).encode())
-print(module._cdp_matches_dedicated_profile())
-(module.BROWSER_PROFILE_DIR / "DevToolsActivePort").write_text("9222\\n/devtools/browser/other\\n")
-print(module._cdp_matches_dedicated_profile())
+fake = {"Browser": "Chrome/145.0.0.0", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/owned"}
+module.urllib.request.urlopen = lambda *_args, **_kwargs: io.BytesIO(json.dumps(fake).encode())
+receipt = module.BROWSER_PROFILE_DIR / "DevToolsActivePort"
+receipt.write_text("9222\\n/devtools/browser/owned\\n")
+module.os.chmod(receipt, 0o644)
+print("legacy receipt binds:", module._cdp_matches_dedicated_profile())
+receipt.unlink()
+module._cdp_listener_cmdlines = lambda port=9222: []
+print("no evidence fails closed:", module._cdp_matches_dedicated_profile())
+module._cdp_listener_cmdlines = lambda port=9222: [["chrome", "--remote-debugging-port=9222", "--user-data-dir=" + str(module.BROWSER_PROFILE_DIR)]]
+print("listener argv binds:", module._cdp_matches_dedicated_profile())
+module._cdp_listener_cmdlines = lambda port=9222: [["chrome", "--remote-debugging-port=9222", "--user-data-dir=/tmp/somewhere-else"]]
+print("wrong profile rejected:", module._cdp_matches_dedicated_profile())
+module._cdp_listener_cmdlines = lambda port=9222: [["chrome", "--remote-debugging-port=9333", "--user-data-dir=" + str(module.BROWSER_PROFILE_DIR)]]
+print("wrong port rejected:", module._cdp_matches_dedicated_profile())
+module._cdp_listener_cmdlines = lambda port=9222: [["chrome", "--remote-debugging-port", "9222", "--user-data-dir", str(module.BROWSER_PROFILE_DIR)]]
+print("space-form flags bind:", module._cdp_matches_dedicated_profile())
 `;
     const result = spawnSync("python3", ["-c", script], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim().split("\n")).toEqual(["True", "False"]);
+    const lines = result.stdout.trim().split("\n");
+    expect(lines).toEqual([
+      "legacy receipt binds: True",
+      "no evidence fails closed: False",
+      "listener argv binds: True",
+      "wrong profile rejected: False",
+      "wrong port rejected: False",
+      "space-form flags bind: True",
+    ]);
   });
 
   test("rejects fixed refusal pages and long prompt echoes", () => {
