@@ -34,5 +34,6 @@
 
 ## 릴리스 확정
 
-- gitleaks `v0.34.2..dev`: 아래 기록.
-- 격리 HOME 신규 설치: 아래 기록(원격 캐노니컬에서 0.34.3).
+- gitleaks `v0.34.2..dev`: 1커밋, 누출 없음.
+- 격리 HOME 신규 설치 — rc 0, installed version 0.34.3(캐노니컬 원격).
+- 태그 `v0.34.3`(main c691874), GitHub Release 게시.
